@@ -83,7 +83,7 @@ base_peer_configure(struct base_peer *peer, int argc, char **argv)
 	
 	errno = 0;
 	unsigned long http_port = strtoul(arg_http_port, NULL, 10);
-	if (errno || (http_port > USHRT_MAX))
+	if (errno || (http_port > 65535))
 		errx(EXIT_FAILURE, "Invalid HTTP port");
 	peer->http_port = http_port;
 

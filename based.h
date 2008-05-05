@@ -46,6 +46,7 @@ struct base_header {
 	u_int16_t value_len;
 	// value
 };
+/* Header names are numeric to save space and time. */
 #define BASE_HEADER_NAME_ID 1
 #define BASE_HEADER_VALUE_LEN_MAX ((1<<16)-1)
 

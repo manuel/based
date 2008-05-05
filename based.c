@@ -171,7 +171,7 @@ base_peer_http_callback(struct evhttp_request *req, void *arg)
 	evhttp_send_error(req, HTTP_BADREQUEST, "Bad Request");
 }
 
-/* Lookup the document's extent in the index, snarf the doc into a
+/* Lookup the document's extent in the index, read the doc into a
    buffer, and hand it off to libevent for sending to the client. */
 
 static int
@@ -269,9 +269,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 /* If there's already a document in the index with that ID, simply
    update the index (dictionary-) node with the extent of the new
    entry.  Otherwise we have to insert a new index node, mapping the
-   ID to the extent of the new entry, which we exploit to show off a
-   cool (and slightly scary, I might add) "combined allocation"
-   trick. */
+   ID to the extent of the new entry. */
 
 static int
 base_peer_index_entry(struct base_peer *peer, struct base_entry *entry, off_t off)
@@ -290,6 +288,7 @@ base_peer_index_entry(struct base_peer *peer, struct base_entry *entry, off_t of
 		extent->len = entry->head_len + entry->content_len; // hm...
 		return 0;
 	} else {
+		// Use a combined buffer for both the extent and the ID copy.
 		size_t id_len = strlen(id);
 		char *combined_buf, *id_copy;
 		size_t combined_buf_len = 

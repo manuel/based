@@ -31,7 +31,7 @@ int
 main(int argc, char **argv)
 {
 	struct base_peer peer;
-	bzero(&peer, sizeof(struct base_peer));
+	memset(&peer, 0, sizeof(struct base_peer));
 
 	setbuf(stdout, NULL);
 	setbuf(stderr, NULL);
@@ -128,7 +128,7 @@ static void
 base_peer_redo_log(struct base_peer *peer)
 {
 	struct stat stat;
-	bzero(&stat, sizeof(struct stat));
+	memset(&stat, 0, sizeof(struct stat));
 	if (fstat(peer->log_fd, &stat) == -1)
 		err(EXIT_FAILURE, "Cannot stat log file");
 	
@@ -228,7 +228,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 		id_len + 1;
 	if (head_len > BASE_ENTRY_HEAD_LEN_MAX) return -1;
 	if (!(head_buf = malloc(head_len))) return -1;
-	bzero(head_buf, head_len);
+	memset(head_buf, 0, head_len);
 
 	struct base_entry *entry;
 	char *entry_ptr = head_buf;
@@ -296,7 +296,7 @@ base_peer_index_entry(struct base_peer *peer, struct base_entry *entry, off_t of
 			sizeof(struct base_extent) + id_len + 1;
 		if (!(combined_buf = malloc(combined_buf_len)))
 			return -1;
-		bzero(combined_buf, combined_buf_len);
+		memset(combined_buf, 0, combined_buf_len);
 		extent = (struct base_extent *) combined_buf;
 		extent->off = off;
 		extent->len = entry->head_len + entry->content_len; // hm...

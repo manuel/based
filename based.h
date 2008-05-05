@@ -6,6 +6,7 @@
 #include <evhttp.h>
 #include <fcntl.h>
 #include <netinet/ip.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,22 +34,22 @@ struct base_peer {
 };
 
 struct base_entry {
-	u_int32_t head_len;
-	u_int32_t content_len;
+	uint32_t head_len;
+	uint32_t content_len;
 	// headers
 	// content
 };
-#define BASE_ENTRY_HEAD_LEN_MAX    4294967295U
-#define BASE_ENTRY_CONTENT_LEN_MAX 4294967295U
+#define BASE_ENTRY_HEAD_LEN_MAX    UINT32_MAX
+#define BASE_ENTRY_CONTENT_LEN_MAX UINT32_MAX
 
 struct base_header {
-	u_int16_t name;
-	u_int16_t value_len;
+	uint16_t name;
+	uint16_t value_len;
 	// value
 };
 /* Header names are numeric to save space and time. */
 #define BASE_HEADER_NAME_ID 1
-#define BASE_HEADER_VALUE_LEN_MAX ((1<<16)-1)
+#define BASE_HEADER_VALUE_LEN_MAX UINT16_MAX
 
 struct base_extent {
 	off_t off;

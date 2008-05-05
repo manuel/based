@@ -21,7 +21,7 @@ currently there is only one header that stores the ID.  Soon there
 will be stuff like MIME type, checksum etc.
 
 Network and file IO is completely synchronous, so page faults will
-lock up the event loop.  With large RAMs and small documents maybe
+block the event loop.  With large RAMs and small documents maybe
 that's not an issue.
 
 Manuel Simoni (msimoni gmail com)

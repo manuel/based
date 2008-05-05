@@ -1,8 +1,12 @@
-Requires a recent (~ 1.4) libevent.
+Requires a recent (~ 1.4) libevent.  "Tested" on Debian stable.
+
+The quick rundown:
 
 sh compile.sh
 ,/based -p 8080
 wget --post-file TODO localhost:8080/todo
 wget localhost:8080/todo
 
-QED.
+You can POST files to arbitrary paths on the server,
+e.g. localhost:8080/docs/john_doe/hello-world, and GET them back
+later.

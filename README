@@ -11,11 +11,17 @@ You can POST files to arbitrary paths on the server,
 e.g. localhost:8080/docs/john_doe/hello-world, and GET them back
 later.
 
-The internal data structures consists of an append-only log, and a RAM
+The internal data structures consist of an append-only log, and a RAM
 index which maps document IDs to offset/length pairs (struct
 base_extent) in the log file.
 
 An entry in the log (struct base_entry) consists of a head and a
 content.  The head is made up of headers (struct base_header),
-currently there is only one header, that stores the ID.  Soon there
-will be stuff like MIME type etc.
+currently there is only one header that stores the ID.  Soon there
+will be stuff like MIME type, checksum etc.
+
+Network and file IO is completely synchronous, so page faults will
+lock up the event loop.  With large RAMs and small documents maybe
+that's not an issue.
+
+-- Manuel, 2008-05-05

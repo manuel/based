@@ -121,6 +121,9 @@ base_peer_init_log(struct base_peer *peer)
 	peer->log_off = 0;
 }
 
+/* Mmap the log file, loop through the entries in it, and add each to
+   the index. */
+
 static void
 base_peer_redo_log(struct base_peer *peer)
 {
@@ -168,6 +171,9 @@ base_peer_http_callback(struct evhttp_request *req, void *arg)
 	evhttp_send_error(req, HTTP_BADREQUEST, "Bad Request");
 }
 
+/* Lookup the document's extent in the index, snarf the doc into a
+   buffer, and hand it off to libevent for sending to the client. */
+
 static int
 base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 {
@@ -197,6 +203,10 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 		return 0;
 	}
 }
+
+/* Construct an entry with an ID header and the user-supplied content,
+   write it to the log file and add it to the index.  If write()
+   fails, we're hosed.  (Yes, this will be improved.) */
 
 static int
 base_peer_put(struct base_peer *peer, struct evhttp_request *req)
@@ -255,6 +265,13 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	free(head_buf);
 	return -1;
 }
+
+/* If there's already a document in the index with that ID, simply
+   update the index (dictionary-) node with the extent of the new
+   entry.  Otherwise we have to insert a new index node, mapping the
+   ID to the extent of the new entry, which we exploit to show off a
+   cool (and slightly scary, I might add) "combined allocation"
+   trick. */
 
 static int
 base_peer_index_entry(struct base_peer *peer, struct base_entry *entry, off_t off)

@@ -24,4 +24,5 @@ Network and file IO is completely synchronous, so page faults will
 lock up the event loop.  With large RAMs and small documents maybe
 that's not an issue.
 
--- Manuel, 2008-05-05
+Manuel Simoni (msimoni gmail com)
+2008-05-05

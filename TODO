@@ -1,0 +1,27 @@
+decide: how to represent combined length of head and content?
+should head _and_ content be 4GiB?  otherwise have trouble with
+size_t...
+
+Makefile
+
+Use only path component of URL as ID, not e.g. args after ? or
+fragment after #
+
+X-Meta headers
+
+test suite
+
+DELETE
+
+Move httpd into own, untrusted process.
+
+head and content checksums
+content-md5 end-to-end integrity check
+
+robust file format, tolerant log redo
+
+replication
+
+compression
+
+Don't return error page from successful POST.

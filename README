@@ -1,0 +1,8 @@
+Requires a recent (~ 1.4) libevent.
+
+sh compile.sh
+,/based -p 8080
+wget --post-file TODO localhost:8080/todo
+wget localhost:8080/todo
+
+QED.

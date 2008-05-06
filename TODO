@@ -25,3 +25,5 @@ replication
 compression
 
 Don't return error page from successful POST.
+
+Unicode support for IDs?

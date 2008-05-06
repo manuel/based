@@ -1,6 +1,6 @@
 LDFLAGS=-levent
 
-based: dict.o based.o
+based: dict.o md5.o based.o
 
 clean:
-	rm -f based based.o dict.o
+	rm -f dict.o md5.o based.o based *~

@@ -7,11 +7,11 @@ Makefile
 Use only path component of URL as ID, not e.g. args after ? or
 fragment after #
 
-X-Meta headers
+X-Meta headers?
 
 test suite
 
-DELETE
+PUT, DELETE
 
 Move httpd into own, untrusted process.
 
@@ -27,3 +27,4 @@ compression
 Don't return error page from successful POST.
 
 Unicode support for IDs?
+URL-decoding issues

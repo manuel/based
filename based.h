@@ -43,13 +43,13 @@ struct base_entry {
 #define BASE_ENTRY_CONTENT_LEN_MAX UINT32_MAX
 
 struct base_header {
-	uint16_t name;
+	uint16_t type;
 	uint16_t value_len;
 	// value
 };
-/* Header names are numeric to save space and time. */
-#define BASE_HEADER_NAME_ID 1
+#define BASE_HEADER_TYPE_MAX UINT16_MAX
 #define BASE_HEADER_VALUE_LEN_MAX UINT16_MAX
+#define BASE_HEADER_TYPE_ID 1
 
 struct base_extent {
 	off_t off;

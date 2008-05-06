@@ -239,7 +239,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	struct base_header *id_header;
 	char *id_header_ptr = entry_ptr + sizeof(struct base_entry);
 	id_header = (struct base_header *) id_header_ptr;
-	id_header->name = BASE_HEADER_NAME_ID;
+	id_header->type = BASE_HEADER_TYPE_ID;
 	id_header->value_len = id_len + 1;
 	
 	char *id_header_value_ptr = id_header_ptr + sizeof(struct base_header);
@@ -276,7 +276,7 @@ base_peer_index_entry(struct base_peer *peer, struct base_entry *entry, off_t of
 {
 	char *id;
 	struct base_header *id_header;
-	if (!(id_header = base_entry_get_header(entry, BASE_HEADER_NAME_ID)))
+	if (!(id_header = base_entry_get_header(entry, BASE_HEADER_TYPE_ID)))
 		return -1;
 	id = base_header_get_value(id_header);
 
@@ -311,7 +311,7 @@ base_peer_index_entry(struct base_peer *peer, struct base_entry *entry, off_t of
 }
 
 static struct base_header *
-base_entry_get_header(struct base_entry *entry, int header_name)
+base_entry_get_header(struct base_entry *entry, int type)
 {
 	char *header_ptr;
 	struct base_header *header;
@@ -319,7 +319,7 @@ base_entry_get_header(struct base_entry *entry, int header_name)
 	while(off < entry->head_len) {
 		header_ptr = ((char *) entry) + off;
 		header = (struct base_header *) header_ptr;
-		if (header->name == header_name)
+		if (header->type == type)
 			return header;
 		off += (sizeof(struct base_header) + header->value_len);
 	}

@@ -201,7 +201,7 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 	}
 }
 
-int
+static int
 base_header_cmp(struct base_header *h1, struct base_header *h2)
 {
 	return h1->type - h2->type;
@@ -319,7 +319,6 @@ base_peer_populate_in_headers(struct base_peer* peer, struct evhttp_request *req
 		return -1;
 	id_header->type = BASE_HEADER_TYPE_ID;
 	id_header->len = id_len + 1;
-	printf("1. header length: %d x%x x%x\n", id_header->len, id_header, id_dnode);
 	dnode_init(id_dnode, id);
 	dict_insert(headers, id_dnode, id_header);
 }
@@ -337,13 +336,11 @@ base_peer_marshall_entry_head(struct base_peer *peer, dict_t *headers,
 	dnode_t *iter = dict_first(headers);
 	while(iter) {
 		header = dnode_getkey(iter);
-		printf("header length: %d x%x x%x\n", header->len, header, iter);
 		head_len += (sizeof(struct base_header) + header->len);// hm...
 		if (iter == dict_last(headers)) break;
 		iter = dict_next(headers, iter);
 	}
 	
-	printf("head_len: %d\n", head_len);
 	struct base_entry *entry;
 	if (!(entry = palloc(&peer->pool, head_len))) 
 		return -1;
@@ -363,7 +360,7 @@ base_peer_marshall_entry_head(struct base_peer *peer, dict_t *headers,
 		dest_header->len = header->len;
 		dest_value = dest + sizeof(struct base_header);
 		memcpy(dest_value, value, dest_header->len);
-		dest += (sizeof(struct base_header) + dest_header->len);
+		dest += (dest_value + dest_header->len);
 		if (iter == dict_last(headers)) break;
 		iter = dict_next(headers, iter);
 	}

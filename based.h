@@ -52,6 +52,8 @@ struct base_header {
 #define BASE_HEADER_TYPE_MAX UINT16_MAX
 #define BASE_HEADER_LEN_MAX UINT16_MAX
 #define BASE_HEADER_TYPE_ID 1
+#define BASE_HEADER_TYPE_CONTENT_MD5 100
+#define BASE_HEADER_TYPE_HEAD_MD5 (UINT16_MAX-100)
 
 struct base_extent {
 	off_t off;

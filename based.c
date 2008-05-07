@@ -20,8 +20,8 @@ static int
 base_peer_populate_in_headers(struct base_peer*, struct evhttp_request *, 
 			      dict_t *headers);
 static ssize_t
-base_peer_marshall_entry_head(struct base_peer *, dict_t *headers,
-			      size_t content_len, char **head_buf);
+base_peer_marshall_entry_head(struct base_peer *, struct base_entry **,
+			      dict_t *headers, size_t content_len);
 static struct base_header *
 base_entry_get_header(struct base_entry *, int header_name);
 static char *
@@ -225,14 +225,14 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	if (base_peer_populate_in_headers(peer, req, &headers) == -1)
 		goto err;
 	
-	char *head_buf;
+	struct base_entry *entry;
 	ssize_t head_len;
 	if ((head_len = 
-	     base_peer_marshall_entry_head(peer, &headers,
-					   content_len, &head_buf)) == -1)
+	     base_peer_marshall_entry_head(peer, &entry, 
+					   &headers, content_len)) == -1)
 		goto err;
 		
-	if (base_write_all(peer->log_fd, head_buf, head_len) == -1) 
+	if (base_write_all(peer->log_fd, (char *) entry, head_len) == -1) 
 		goto err;
 	if (base_write_all(peer->log_fd, content_buf, content_len) == -1) 
 		goto err;
@@ -240,7 +240,6 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	off_t old_log_off = peer->log_off;
 	peer->log_off += (head_len + content_len);
 	
-	struct base_entry *entry = (struct base_entry *) head_buf;
 	if (base_peer_index_entry(peer, entry, old_log_off) == -1) 
 		goto err;
 
@@ -325,10 +324,10 @@ base_peer_populate_in_headers(struct base_peer* peer, struct evhttp_request *req
 
 /* Create the binary representation of the head of an entry so that
    the content can be written after it.  The memory is allocated from
-   the pool and returned in head_buf. */
+   the pool. */
 static ssize_t
-base_peer_marshall_entry_head(struct base_peer *peer, dict_t *headers,
-			      size_t content_len, char **head_buf)
+base_peer_marshall_entry_head(struct base_peer *peer, struct base_entry **out_entry,
+			      dict_t *headers, size_t content_len)
 {
 	// Get the total length of the head, including headers
 	ssize_t head_len = sizeof(struct base_entry);
@@ -360,12 +359,12 @@ base_peer_marshall_entry_head(struct base_peer *peer, dict_t *headers,
 		dest_header->len = header->len;
 		dest_value = dest + sizeof(struct base_header);
 		memcpy(dest_value, value, dest_header->len);
-		dest += (dest_value + dest_header->len);
+		dest = dest_value + dest_header->len;
 		if (iter == dict_last(headers)) break;
 		iter = dict_next(headers, iter);
 	}
 
-	*head_buf = (char *) entry;
+	*out_entry = entry;
 	return head_len;
 }
 

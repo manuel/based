@@ -1,3 +1,4 @@
+CCFLAGS=-g -O0
 LDFLAGS=-levent
 
 based: dict.o based.o

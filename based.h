@@ -27,7 +27,7 @@ struct base_peer {
 	char *log_file;
 	int log_fd;
 	off_t log_off;
-	dict_t log_index;
+	dict_t index;
 	char *http_addr;
 	in_port_t http_port;
 	struct evhttp *httpd;
@@ -44,11 +44,11 @@ struct base_entry {
 
 struct base_header {
 	uint16_t type;
-	uint16_t value_len;
+	uint16_t len;
 	// value
 };
 #define BASE_HEADER_TYPE_MAX UINT16_MAX
-#define BASE_HEADER_VALUE_LEN_MAX UINT16_MAX
+#define BASE_HEADER_LEN_MAX UINT16_MAX
 #define BASE_HEADER_TYPE_ID 1
 
 struct base_extent {

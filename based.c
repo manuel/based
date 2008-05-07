@@ -115,7 +115,7 @@ base_peer_init_log(struct base_peer *peer)
 				 S_IRUSR | S_IWUSR)) == -1)
 		err(EXIT_FAILURE, "Cannot open log file");
 
-	dict_init(&peer->log_index, DICTCOUNT_T_MAX,
+	dict_init(&peer->index, DICTCOUNT_T_MAX,
 		  (int (*)(const void *, const void *)) strcmp);
 
 	peer->log_off = 0;
@@ -180,7 +180,7 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 	char *id = req->uri;
 	dnode_t *dnode;
 	if (!id) return -1;
-	if (dnode = dict_lookup(&peer->log_index, id)) {
+	if (dnode = dict_lookup(&peer->index, id)) {
 		struct base_extent *extent;
 		char *buf;
 		struct base_entry *entry;
@@ -219,7 +219,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	char *id = req->uri;
 	size_t id_len = strlen(id);
 	if (!id) return -1;
-	if ((id_len == 0) || (id_len > BASE_HEADER_VALUE_LEN_MAX)) return -1;
+	if ((id_len == 0) || (id_len > BASE_HEADER_LEN_MAX)) return -1;
 	
 	char *head_buf;
 	size_t head_len = 
@@ -240,7 +240,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	char *id_header_ptr = entry_ptr + sizeof(struct base_entry);
 	id_header = (struct base_header *) id_header_ptr;
 	id_header->type = BASE_HEADER_TYPE_ID;
-	id_header->value_len = id_len + 1;
+	id_header->len = id_len + 1;
 	
 	char *id_header_value_ptr = id_header_ptr + sizeof(struct base_header);
 	memcpy(id_header_value_ptr, id, id_len);
@@ -253,7 +253,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 
 	off_t old_log_off = peer->log_off;
 	peer->log_off += (head_len + content_len);
-
+	
 	if (base_peer_index_entry(peer, entry, old_log_off) == -1) 
 		goto err;
 
@@ -278,20 +278,22 @@ base_peer_index_entry(struct base_peer *peer, struct base_entry *entry, off_t of
 	struct base_header *id_header;
 	if (!(id_header = base_entry_get_header(entry, BASE_HEADER_TYPE_ID)))
 		return -1;
-	id = base_header_get_value(id_header);
+	if (!(id = base_header_get_value(id_header)))
+		return -1;
 
 	struct base_extent *extent;
 	dnode_t *dnode;
-	if (dnode = dict_lookup(&peer->log_index, id)) {
+	if (dnode = dict_lookup(&peer->index, id)) {
 		extent = dnode_get(dnode);
 		extent->off = off;
 		extent->len = entry->head_len + entry->content_len; // hm...
 		return 0;
 	} else {
+		if (dict_isfull(&peer->index)) return -1;
 		// Use a combined buffer for both the extent and the ID copy.
 		size_t id_len = strlen(id);
 		char *combined_buf, *id_copy;
-		size_t combined_buf_len = 
+		size_t combined_buf_len =
 			sizeof(struct base_extent) + id_len + 1;
 		if (!(combined_buf = malloc(combined_buf_len)))
 			return -1;
@@ -301,7 +303,7 @@ base_peer_index_entry(struct base_peer *peer, struct base_entry *entry, off_t of
 		extent->len = entry->head_len + entry->content_len; // hm...
 		id_copy = combined_buf + sizeof(struct base_extent);
 		memcpy(id_copy, id, id_len + 1);
-		if (dict_alloc_insert(&peer->log_index, id_copy, extent)) {
+		if (dict_alloc_insert(&peer->index, id_copy, extent)) {
 			return 0;
 		} else {
 			free(combined_buf);
@@ -321,7 +323,7 @@ base_entry_get_header(struct base_entry *entry, int type)
 		header = (struct base_header *) header_ptr;
 		if (header->type == type)
 			return header;
-		off += (sizeof(struct base_header) + header->value_len);
+		off += (sizeof(struct base_header) + header->len);
 	}
 	return NULL;
 }

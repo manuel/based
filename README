@@ -1,15 +1,17 @@
-Requires a recent (~ 1.4) libevent.  "Tested" on Debian stable.
+Requires a recent (~ 1.4) libevent.  Tested on Debian stable.
 
 The quick rundown:
 
-sh compile.sh
-,/based -p 8080
-wget --post-file TODO localhost:8080/todo
-wget localhost:8080/todo
+make
+./based
+
+In another shell:
+
+curl -d "hello world" localhost:8080/hello-world
+w3m http://localhost:8080/hello-world
 
 You can POST files to arbitrary paths on the server,
-e.g. localhost:8080/docs/john_doe/hello-world, and GET them back
-later.
+e.g. /docs/john_doe/hello-world, and GET them back later.
 
 The internal data structures consist of an append-only log, and a RAM
 index which maps document IDs to offset/length pairs (struct

@@ -2,8 +2,6 @@ decide: how to represent combined length of head and content?
 should head _and_ content be 4GiB?  otherwise have trouble with
 size_t...
 
-Makefile
-
 Use only path component of URL as ID, not e.g. args after ? or
 fragment after #
 

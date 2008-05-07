@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include "dict.h"
+#include "pool.h"
 
 #define BASE_NAME "based"
 #define BASE_VERSION "0.0.3"
@@ -31,6 +32,7 @@ struct base_peer {
 	char *http_addr;
 	in_port_t http_port;
 	struct evhttp *httpd;
+	struct pool pool;
 };
 
 struct base_entry {

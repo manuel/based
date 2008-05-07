@@ -1,7 +1,7 @@
-CCFLAGS=-g -O0
+#CCFLAGS=-g -O0
 LDFLAGS=-levent
 
-based: dict.o based.o
+based: dict.o list.o pool.o based.o
 
 clean:
-	rm -f dict.o based.o based *~
+	rm -f dict.o list.o pool.o based.o based *~

@@ -4,10 +4,8 @@ static void
 base_peer_usage();
 static void
 base_peer_configure(struct base_peer *, int argc, char **argv);
-static void 
-base_peer_init_httpd(struct base_peer *);
 static void
-base_peer_init_log(struct base_peer *);
+base_peer_init(struct base_peer *);
 static void
 base_peer_redo_log(struct base_peer *);
 static void
@@ -18,6 +16,12 @@ static int
 base_peer_put(struct base_peer *, struct evhttp_request *);
 static int
 base_peer_index_entry(struct base_peer *, struct base_entry *, off_t);
+static int
+base_peer_populate_in_headers(struct base_peer*, struct evhttp_request *, 
+			      dict_t *headers);
+static ssize_t
+base_peer_marshall_entry_head(struct base_peer *, dict_t *headers,
+			      size_t content_len, char **head_buf);
 static struct base_header *
 base_entry_get_header(struct base_entry *, int header_name);
 static char *
@@ -39,8 +43,7 @@ main(int argc, char **argv)
 	printf("%s %s\n", BASE_NAME, BASE_VERSION);
 	
 	base_peer_configure(&peer, argc, argv);
-	base_peer_init_httpd(&peer);
-	base_peer_init_log(&peer);
+	base_peer_init(&peer);
 	base_peer_redo_log(&peer);
 
 	event_dispatch();
@@ -93,8 +96,18 @@ base_peer_configure(struct base_peer *peer, int argc, char **argv)
 }
 
 static void
-base_peer_init_httpd(struct base_peer *peer)
+base_peer_init(struct base_peer *peer)
 {
+	if ((peer->log_fd = open(peer->log_file,
+				 O_RDWR | O_CREAT | O_SYNC | O_APPEND,
+				 S_IRUSR | S_IWUSR)) == -1)
+		err(EXIT_FAILURE, "Cannot open log file");
+
+	dict_init(&peer->index, DICTCOUNT_T_MAX,
+		  (int (*)(const void *, const void *)) strcmp);
+	
+	pool_init(&peer->pool, POOL_DEFAULT_PAGE_SIZE);
+
 	if (!event_init())
 		errx(EXIT_FAILURE, "Cannot initialize libevent");
 
@@ -107,23 +120,8 @@ base_peer_init_httpd(struct base_peer *peer)
 	evhttp_set_gencb(peer->httpd, base_peer_http_callback, peer);
 }
 
-static void
-base_peer_init_log(struct base_peer *peer)
-{
-	if ((peer->log_fd = open(peer->log_file,
-				 O_RDWR | O_CREAT | O_SYNC | O_APPEND,
-				 S_IRUSR | S_IWUSR)) == -1)
-		err(EXIT_FAILURE, "Cannot open log file");
-
-	dict_init(&peer->index, DICTCOUNT_T_MAX,
-		  (int (*)(const void *, const void *)) strcmp);
-
-	peer->log_off = 0;
-}
-
 /* Mmap the log file, loop through the entries in it, and add each to
    the index. */
-
 static void
 base_peer_redo_log(struct base_peer *peer)
 {
@@ -173,7 +171,6 @@ base_peer_http_callback(struct evhttp_request *req, void *arg)
 
 /* Lookup the document's extent in the index, read the doc into a
    buffer, and hand it off to libevent for sending to the client. */
-
 static int
 base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 {
@@ -204,10 +201,15 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 	}
 }
 
+int
+base_header_cmp(struct base_header *h1, struct base_header *h2)
+{
+	return h1->type - h2->type;
+}
+
 /* Construct an entry with an ID header and the user-supplied content,
    write it to the log file and add it to the index.  If write()
    fails, we're hosed.  (Yes, this will be improved.) */
-
 static int
 base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 {
@@ -216,36 +218,20 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	if (!content_buf) return -1;
 	if (content_len > BASE_ENTRY_CONTENT_LEN_MAX) return -1;
 
-	char *id = req->uri;
-	size_t id_len = strlen(id);
-	if (!id) return -1;
-	if ((id_len == 0) || (id_len > BASE_HEADER_LEN_MAX)) return -1;
+	dict_t headers;
+	dict_init(&headers, DICTCOUNT_T_MAX,
+		  (int (*)(const void *, const void *)) base_header_cmp);
+	dict_allow_dupes(&headers);
+	if (base_peer_populate_in_headers(peer, req, &headers) == -1)
+		goto err;
 	
 	char *head_buf;
-	size_t head_len = 
-		sizeof(struct base_entry) +
-		sizeof(struct base_header) +
-		id_len + 1;
-	if (head_len > BASE_ENTRY_HEAD_LEN_MAX) return -1;
-	if (!(head_buf = malloc(head_len))) return -1;
-	memset(head_buf, 0, head_len);
-
-	struct base_entry *entry;
-	char *entry_ptr = head_buf;
-	entry = (struct base_entry *) entry_ptr;
-	entry->head_len = head_len;
-	entry->content_len = content_len;
-	
-	struct base_header *id_header;
-	char *id_header_ptr = entry_ptr + sizeof(struct base_entry);
-	id_header = (struct base_header *) id_header_ptr;
-	id_header->type = BASE_HEADER_TYPE_ID;
-	id_header->len = id_len + 1;
-	
-	char *id_header_value_ptr = id_header_ptr + sizeof(struct base_header);
-	memcpy(id_header_value_ptr, id, id_len);
-	id_header_value_ptr[id_len] = '\0';
-	
+	ssize_t head_len;
+	if ((head_len = 
+	     base_peer_marshall_entry_head(peer, &headers,
+					   content_len, &head_buf)) == -1)
+		goto err;
+		
 	if (base_write_all(peer->log_fd, head_buf, head_len) == -1) 
 		goto err;
 	if (base_write_all(peer->log_fd, content_buf, content_len) == -1) 
@@ -254,23 +240,24 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	off_t old_log_off = peer->log_off;
 	peer->log_off += (head_len + content_len);
 	
+	struct base_entry *entry = (struct base_entry *) head_buf;
 	if (base_peer_index_entry(peer, entry, old_log_off) == -1) 
 		goto err;
 
-	free(head_buf);
+	pool_bump(&peer->pool);
 	evhttp_send_error(req, HTTP_OK, "OK");
 	return 0;
 
  err:
-	free(head_buf);
+	pool_bump(&peer->pool);
 	return -1;
 }
 
-/* If there's already a document in the index with that ID, simply
-   update the index (dictionary-) node with the extent of the new
-   entry.  Otherwise we have to insert a new index node, mapping the
-   ID to the extent of the new entry. */
-
+/* Add an entry to the index.  This is called when a new entry is PUT,
+   and when we are redoing the log. -- If there's already a document
+   in the index with that ID, simply update the index (dictionary-)
+   node with the extent of the new entry.  Otherwise we have to insert
+   a new index node, mapping the ID to the extent of the new entry. */
 static int
 base_peer_index_entry(struct base_peer *peer, struct base_entry *entry, off_t off)
 {
@@ -310,6 +297,79 @@ base_peer_index_entry(struct base_peer *peer, struct base_entry *entry, off_t of
 			return -1;
 		}
 	}
+}
+
+/* Fill the headers dictionary with headers that should be written to
+   disk for the entry corresponding to a HTTP PUT request.  New memory
+   for the headers should be allocated from the pool; it is also to OK
+   to reference data in the request, as the headers will be written
+   before the request is destroyed. */
+static int
+base_peer_populate_in_headers(struct base_peer* peer, struct evhttp_request *req, 
+			      dict_t *headers)
+{
+	char *id = req->uri;
+	size_t id_len = strlen(id);
+	struct base_header *id_header;
+	dnode_t *id_dnode;
+	if (!id) return -1;
+	if ((id_len == 0) || (id_len > BASE_HEADER_LEN_MAX))  return -1;
+	if (!(id_dnode = palloc(&peer->pool, sizeof(dnode_t)))) return -1;
+	if (!(id_header = palloc(&peer->pool, sizeof(struct base_header))))
+		return -1;
+	id_header->type = BASE_HEADER_TYPE_ID;
+	id_header->len = id_len + 1;
+	printf("1. header length: %d x%x x%x\n", id_header->len, id_header, id_dnode);
+	dnode_init(id_dnode, id);
+	dict_insert(headers, id_dnode, id_header);
+}
+
+/* Create the binary representation of the head of an entry so that
+   the content can be written after it.  The memory is allocated from
+   the pool and returned in head_buf. */
+static ssize_t
+base_peer_marshall_entry_head(struct base_peer *peer, dict_t *headers,
+			      size_t content_len, char **head_buf)
+{
+	// Get the total length of the head, including headers
+	ssize_t head_len = sizeof(struct base_entry);
+	const struct base_header *header;
+	dnode_t *iter = dict_first(headers);
+	while(iter) {
+		header = dnode_getkey(iter);
+		printf("header length: %d x%x x%x\n", header->len, header, iter);
+		head_len += (sizeof(struct base_header) + header->len);// hm...
+		if (iter == dict_last(headers)) break;
+		iter = dict_next(headers, iter);
+	}
+	
+	printf("head_len: %d\n", head_len);
+	struct base_entry *entry;
+	if (!(entry = palloc(&peer->pool, head_len))) 
+		return -1;
+	entry->head_len = head_len;
+	entry->content_len = content_len;
+	
+	// Serialize the headers
+	char *dest = ((char *) entry) + sizeof(struct base_entry);
+	struct base_header *dest_header;
+	char *dest_value, *value;
+	iter = dict_first(headers);
+	while(iter) {
+		header = dnode_getkey(iter);
+		value = dnode_get(iter);
+		dest_header = (struct base_header *) dest;
+		dest_header->type = header->type;
+		dest_header->len = header->len;
+		dest_value = dest + sizeof(struct base_header);
+		memcpy(dest_value, value, dest_header->len);
+		dest += (sizeof(struct base_header) + dest_header->len);
+		if (iter == dict_last(headers)) break;
+		iter = dict_next(headers, iter);
+	}
+
+	*head_buf = (char *) entry;
+	return head_len;
 }
 
 static struct base_header *

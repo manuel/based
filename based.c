@@ -109,7 +109,7 @@ base_peer_init(struct base_peer *peer)
 	dict_init(&peer->index, DICTCOUNT_T_MAX,
 		  (int (*)(const void *, const void *)) strcmp);
 	
-	pool_init(&peer->pool, POOL_DEFAULT_PAGE_SIZE);
+	pool_init(&peer->write_pool, POOL_DEFAULT_PAGE_SIZE);
 
 	if (!event_init())
 		errx(EXIT_FAILURE, "Cannot initialize libevent");
@@ -271,12 +271,12 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	if (base_peer_index_entry(peer, entry, old_log_off) == -1)
 		goto err;
 
-	pool_bump(&peer->pool);
+	pool_bump(&peer->write_pool);
 	evhttp_send_reply(req, HTTP_OK, "OK", NULL);
 	return 0;
 
  err:
-	pool_bump(&peer->pool);
+	pool_bump(&peer->write_pool);
 	return -1;
 }
 
@@ -331,9 +331,9 @@ base_peer_index_entry(struct base_peer *peer,
 
 /* Fill the headers dictionary with headers that should be written to
    disk for the entry corresponding to a HTTP PUT request.  New memory
-   for the headers should be allocated from the pool; it is also to OK
-   to reference data in the request, as the headers will be written
-   before the request is destroyed. */
+   for the headers should be allocated from the write pool; it is also
+   to OK to reference data in the request, as the headers will be
+   written before the request is destroyed. */
 int
 base_peer_populate_in_headers(struct base_peer* peer,
 			      struct evhttp_request *req, 
@@ -345,8 +345,8 @@ base_peer_populate_in_headers(struct base_peer* peer,
 	dnode_t *id_dnode;
 	if (!id) return -1;
 	if ((id_len == 0) || (id_len > (BASE_HEADER_LEN_MAX - 1)))  return -1;
-	if (!(id_dnode = palloc(&peer->pool, sizeof(dnode_t)))) return -1;
-	if (!(id_header = palloc(&peer->pool, sizeof(struct base_header))))
+	if (!(id_dnode = palloc(&peer->write_pool, sizeof(dnode_t)))) return -1;
+	if (!(id_header = palloc(&peer->write_pool, sizeof(struct base_header))))
 		return -1;
 	id_header->type = BASE_HEADER_TYPE_ID;
 	id_header->len = id_len + 1;
@@ -356,7 +356,7 @@ base_peer_populate_in_headers(struct base_peer* peer,
 
 /* Create the binary representation of the head of an entry so that
    the content can be written after it.  The memory is allocated from
-   the pool. */
+   the write pool. */
 ssize_t
 base_peer_marshall_entry_head(struct base_peer *peer, 
 			      struct base_entry **out_entry,
@@ -375,7 +375,7 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 	}
 	
 	struct base_entry *entry;
-	if (!(entry = palloc(&peer->pool, head_len))) 
+	if (!(entry = palloc(&peer->write_pool, head_len))) 
 		return -1;
 	entry->head_len = head_len;
 	entry->len = head_len + content_len;

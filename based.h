@@ -37,7 +37,9 @@ struct base_peer {
 	char *http_addr;
 	in_port_t http_port;
 	struct evhttp *httpd;
-	struct pool pool;
+	/* This pool holds various data objects during the PUT of an
+	   entry and is bumped afterwards.*/
+	struct pool write_pool;
 };
 
 /* 32/64-bit plan: entry lengths should always be representable using

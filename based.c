@@ -447,21 +447,21 @@ base_writev_all(int fd, struct iovec *vec, int count)
 	int i = 0;
 	ssize_t res;
 	size_t written = 0;
-        while (i < count) {
+	while (i < count) {
 		if ((res = writev(fd, &vec[i], count - i)) == -1)
 			return -1;
-                written += res;
-                while (res > 0) {
-                        if (res < vec[i].iov_len) {
-                                vec[i].iov_base = 
+		written += res;
+		while (res > 0) {
+			if (res < vec[i].iov_len) {
+				vec[i].iov_base = 
 					(char *) vec[i].iov_base + res;
-                                vec[i].iov_len -= res;
-                                res = 0;
-                        } else {
-                                res -= vec[i].iov_len;
-                                ++i;
-                        }
-                }
-        }
-        return 0;
+				vec[i].iov_len -= res;
+				res = 0;
+			} else {
+				res -= vec[i].iov_len;
+				++i;
+			}
+		}
+	}
+	return 0;
 }

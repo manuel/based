@@ -57,10 +57,6 @@ struct base_entry {
 (BASE_ENTRY_LEN_MAX - BASE_ENTRY_HEAD_LEN_MAX)
 
 inline size_t
-base_entry_len(struct base_entry* entry) { return entry->len; }
-inline size_t
-base_entry_head_len(struct base_entry* entry) { return entry->head_len; }
-inline size_t
 base_entry_content_len(struct base_entry* entry)
 { return entry->len - entry->head_len; }
 
@@ -71,11 +67,6 @@ struct base_header {
 #define BASE_HEADER_TYPE_MAX ((1U<<4)-1)
 #define BASE_HEADER_LEN_MAX ((1U<<12)-1)
 #define BASE_HEADER_TYPE_ID 1
-
-inline size_t
-base_header_type(struct base_header *header) { return header->type; }
-inline size_t
-base_header_len(struct base_header *header) { return header->len; }
 
 struct base_extent {
 	off_t off;

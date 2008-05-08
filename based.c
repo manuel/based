@@ -145,7 +145,7 @@ base_peer_redo_log(struct base_peer *peer)
 		entry = (struct base_entry *) entry_ptr;
 		if (base_peer_index_entry(peer, entry, off) == -1)
 			errx(EXIT_FAILURE, "Cannot index entry");
-		off += base_entry_len(entry);
+		off += entry->len;
 	}
 
 	peer->log_off = off;
@@ -192,7 +192,7 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 			return -1;
 		}
 		entry = (struct base_entry *) buf;
-		content = buf + base_entry_head_len(entry);
+		content = buf + entry->head_len;
 		evbuffer_add(req->output_buffer, content, 
 			     base_entry_content_len(entry));
 		free(buf);
@@ -277,13 +277,13 @@ base_peer_index_entry(struct base_peer *peer,
 	if (dnode = dict_lookup(&peer->index, id)) {
 		extent = dnode_get(dnode);
 		extent->off = off;
-		extent->len = base_entry_len(entry);
-		extent->head_len = base_entry_head_len(entry);
+		extent->len = entry->len;
+		extent->head_len = entry->head_len;
 		return 0;
 	} else {
 		if (dict_isfull(&peer->index)) return -1;
 		// Use a combined buffer for both the extent and the ID copy.
-		size_t id_len = base_header_len(id_header);
+		size_t id_len = id_header->len;
 		char *combined_buf, *id_copy;
 		size_t combined_buf_len =
 			sizeof(struct base_extent) + id_len + 1;
@@ -292,8 +292,8 @@ base_peer_index_entry(struct base_peer *peer,
 		memset(combined_buf, 0, combined_buf_len);
 		extent = (struct base_extent *) combined_buf;
 		extent->off = off;
-		extent->len = base_entry_len(entry);
-		extent->head_len = base_entry_head_len(entry);
+		extent->len = entry->len;
+		extent->head_len = entry->head_len;
 		id_copy = combined_buf + sizeof(struct base_extent);
 		memcpy(id_copy, id, id_len + 1);
 		if (dict_alloc_insert(&peer->index, id_copy, extent)) {

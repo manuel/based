@@ -17,7 +17,6 @@
 
 #include "dict.h"
 #include "pool.h"
-#include "util.h"
 
 #define BASE_NAME "based"
 #define BASE_VERSION "0.0.3"
@@ -28,7 +27,7 @@
 
 /* Requires libevent 1.4.3 plus sendfile patches:
    http://monkeymail.org/archives/libevent-users/2008-May/thread.html */
-#define BASE_USE_SENDFILE
+//#define BASE_USE_SENDFILE
 
 struct base_peer {
 	char *log_file;

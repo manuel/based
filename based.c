@@ -26,6 +26,10 @@ struct base_header *
 base_entry_get_header(struct base_entry *, int type);
 char *
 base_header_get_value(struct base_header *);
+int
+base_pread_all(int, void *, size_t, off_t);
+int
+base_writev_all(int, struct iovec *, int);
 
 int
 main(int argc, char **argv)
@@ -211,7 +215,7 @@ base_peer_send_content(struct base_peer *peer,
 	size_t content_len = extent->len - extent->head_len;
 	if (!(content = malloc(content_len)))
 		return -1;
-	if (util_pread_all(peer->log_fd, content, content_len,
+	if (base_pread_all(peer->log_fd, content, content_len,
 			   extent->off + extent->head_len) == -1) {
 		free(content);
 		return -1;
@@ -258,7 +262,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 		{ entry, head_len },
 		{ content_buf, content_len }
 	};
-	if (util_writev_all(peer->log_fd, vec, 2) == -1)
+	if (base_writev_all(peer->log_fd, vec, 2) == -1)
 		goto err;
 
 	off_t old_log_off = peer->log_off;
@@ -419,4 +423,45 @@ char *
 base_header_get_value(struct base_header *header)
 {
 	return ((char *) header) + sizeof(struct base_header);
+}
+
+int
+base_pread_all(int fd, void *buf, size_t count, off_t offset)
+{
+	ssize_t res;
+	size_t read = 0;
+	while(read < count) {
+		if ((res = pread(fd, buf + read, count - read,
+				 offset + read)) == -1)
+			return -1;
+		else
+			read += res;
+	}
+	return 0;
+}
+
+/* Adapted from Linux Journal, September 2007. */
+int
+base_writev_all(int fd, struct iovec *vec, int count)
+{
+	int i = 0;
+	ssize_t res;
+	size_t written = 0;
+        while (i < count) {
+		if ((res = writev(fd, &vec[i], count - i)) == -1)
+			return -1;
+                written += res;
+                while (res > 0) {
+                        if (res < vec[i].iov_len) {
+                                vec[i].iov_base = 
+					(char *) vec[i].iov_base + res;
+                                vec[i].iov_len -= res;
+                                res = 0;
+                        } else {
+                                res -= vec[i].iov_len;
+                                ++i;
+                        }
+                }
+        }
+        return 0;
 }

@@ -12,10 +12,12 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 #include "dict.h"
 #include "pool.h"
+#include "util.h"
 
 #define BASE_NAME "based"
 #define BASE_VERSION "0.0.3"

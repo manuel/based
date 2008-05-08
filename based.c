@@ -26,10 +26,6 @@ struct base_header *
 base_entry_get_header(struct base_entry *, int type);
 char *
 base_header_get_value(struct base_header *);
-int
-base_pread_all(int, void *, size_t, off_t);
-int
-base_write_all(int, void *, size_t);
 
 int
 main(int argc, char **argv)
@@ -215,7 +211,7 @@ base_peer_send_content(struct base_peer *peer,
 	size_t content_len = extent->len - extent->head_len;
 	if (!(content = malloc(content_len)))
 		return -1;
-	if (base_pread_all(peer->log_fd, content, content_len,
+	if (util_pread_all(peer->log_fd, content, content_len,
 			   extent->off + extent->head_len) == -1) {
 		free(content);
 		return -1;
@@ -258,9 +254,11 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 					   &headers, content_len)) == -1)
 		goto err;
 
-	if (base_write_all(peer->log_fd, (char *) entry, head_len) == -1)
-		goto err;
-	if (base_write_all(peer->log_fd, content_buf, content_len) == -1)
+	struct iovec vec[2] = {
+		{ entry, head_len },
+		{ content_buf, content_len }
+	};
+	if (util_writev_all(peer->log_fd, vec, 2) == -1)
 		goto err;
 
 	off_t old_log_off = peer->log_off;
@@ -422,33 +420,3 @@ base_header_get_value(struct base_header *header)
 {
 	return ((char *) header) + sizeof(struct base_header);
 }
-
-int
-base_pread_all(int fd, void *buf, size_t count, off_t offset)
-{
-	ssize_t res;
-	size_t read = 0;
-	while(read < count) {
-		if ((res = pread(fd, buf + read, count - read,
-				 offset + read)) == -1)
-			return -1;
-		else
-			read += res;
-	}
-	return 0;
-}
-
-int
-base_write_all(int fd, void *buf, size_t count)
-{
-	ssize_t res;
-	size_t written = 0;
-	while (written < count) {
-		if ((res = write(fd, buf + written, count - written)) == -1)
-			return -1;
-		else
-			written += res;
-	}
-	return 0;
-}
-

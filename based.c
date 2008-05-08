@@ -270,7 +270,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 		goto err;
 
 	pool_bump(&peer->pool);
-	evhttp_send_error(req, HTTP_OK, "OK");
+	evhttp_send_reply(req, HTTP_OK, "OK", NULL);
 	return 0;
 
  err:

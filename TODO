@@ -1,5 +1,3 @@
-Don't return error page from successful POST.
-
 Handle overflow when writing to log. also check before writing whether
    too large for a single file.
 

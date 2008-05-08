@@ -64,8 +64,8 @@ base_peer_configure(struct base_peer *peer, int argc, char **argv)
 	char *arg_log_file = BASE_DEFAULT_LOG_FILE;
 	char *arg_http_addr = BASE_DEFAULT_HTTP_ADDR;
 	char *arg_http_port = BASE_DEFAULT_HTTP_PORT;
-
-	while ((c = getopt(argc, argv, "l:a:p:")) != -1) {
+	
+	while ((c = getopt(argc, argv, "l:a:p")) != -1) {
 		switch (c) {
 		case 'l':
 			arg_log_file = optarg;
@@ -93,6 +93,9 @@ base_peer_configure(struct base_peer *peer, int argc, char **argv)
 	printf("Log file %s\n", peer->log_file);
 	printf("HTTP address %s\n", peer->http_addr);
 	printf("HTTP port %d\n", peer->http_port);
+#ifdef BASE_USE_SENDFILE
+	printf("Sendfile enabled\n");
+#endif	
 }
 
 void
@@ -161,7 +164,7 @@ base_peer_http_callback(struct evhttp_request *req, void *arg)
 	
 	switch (req->type) {
 	case EVHTTP_REQ_GET:
-		if (base_peer_get(peer, req) == 0) return;
+		if (base_peer_get(peer, req) == 0) return;			
 	case EVHTTP_REQ_POST:
 		if (base_peer_put(peer, req) == 0) return;
 	}
@@ -169,41 +172,60 @@ base_peer_http_callback(struct evhttp_request *req, void *arg)
 	evhttp_send_error(req, HTTP_BADREQUEST, "Bad Request");
 }
 
-/* Lookup the document's extent in the index, read the doc into a
-   buffer, and hand it off to libevent for sending to the client. */
 int
 base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 {
 	char *id = req->uri;
 	dnode_t *dnode;
+	struct base_extent *extent;
 	if (!id) return -1;
 	if (dnode = dict_lookup(&peer->index, id)) {
-		struct base_extent *extent;
 		extent = (struct base_extent *) dnode_get(dnode);
-
-		char *buf;
-		struct base_entry *entry;
-		char *content;
-		if (!(buf = malloc(extent->len)))
+		if (base_peer_send_content(peer, req, extent) == -1)
 			return -1;
-		if (base_pread_all(peer->log_fd, buf, extent->len, 
-				   extent->off) == -1) {
-			free(buf);
-			return -1;
-		}
-		entry = (struct base_entry *) buf;
-		content = buf + entry->head_len;
-		evbuffer_add(req->output_buffer, content, 
-			     base_entry_content_len(entry));
-		free(buf);
 		evhttp_send_reply(req, HTTP_OK, "OK", NULL);
-
 		return 0;
 	} else {
 		evhttp_send_error(req, 404, "Not Found");
 		return 0;
 	}
 }
+
+#ifdef BASE_USE_SENDFILE
+
+int
+base_peer_send_content(struct base_peer *peer, 
+		       struct evhttp_request *req,
+		       struct base_extent *extent)
+{
+	req->output_buffer->sf_fd = peer->log_fd;
+	req->output_buffer->sf_off = extent->off + extent->head_len;
+	req->output_buffer->off = extent->len - extent->head_len;
+	return 0;
+}
+
+#else
+
+int
+base_peer_send_content(struct base_peer *peer, 
+		       struct evhttp_request *req,
+		       struct base_extent *extent)
+{
+	char *content;
+	size_t content_len = extent->len - extent->head_len;
+	if (!(content = malloc(content_len)))
+		return -1;
+	if (base_pread_all(peer->log_fd, content, content_len,
+			   extent->off + extent->head_len) == -1) {
+		free(content);
+		return -1;
+	}
+	evbuffer_add(req->output_buffer, content, content_len);
+	free(content);
+	return 0;
+}
+
+#endif // BASE_USE_SENDFILE
 
 int
 base_header_cmp(struct base_header *h1, struct base_header *h2)

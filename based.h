@@ -24,6 +24,10 @@
 #define BASE_DEFAULT_HTTP_ADDR "127.0.0.1"
 #define BASE_DEFAULT_HTTP_PORT "8080"
 
+/* Requires libevent 1.4.3 plus sendfile patches:
+   http://monkeymail.org/archives/libevent-users/2008-May/thread.html */
+#define BASE_USE_SENDFILE
+
 struct base_peer {
 	char *log_file;
 	int log_fd;
@@ -55,10 +59,6 @@ struct base_entry {
 #define BASE_ENTRY_HEAD_LEN_MAX ((1U<<16)-1)
 #define BASE_ENTRY_CONTENT_LEN_MAX \
 (BASE_ENTRY_LEN_MAX - BASE_ENTRY_HEAD_LEN_MAX)
-
-inline size_t
-base_entry_content_len(struct base_entry* entry)
-{ return entry->len - entry->head_len; }
 
 struct base_header {
 	uint16_t type:4, len:12;

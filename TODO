@@ -1,11 +1,10 @@
-decide: how to represent combined length of head and content?
-should head _and_ content be 4GiB?  otherwise have trouble with
-size_t...
+Don't return error page from successful POST.
+
+Handle overflow when writing to log. also check before writing whether
+   too large for a single file.
 
 Use only path component of URL as ID, not e.g. args after ? or
-fragment after #
-
-X-Meta headers?
+   fragment after #
 
 test suite
 
@@ -19,10 +18,6 @@ content-md5 end-to-end integrity check
 robust file format, tolerant log redo
 
 replication
-
-compression
-
-Don't return error page from successful POST.
 
 Unicode support for IDs?
 URL-decoding issues

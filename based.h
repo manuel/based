@@ -35,29 +35,51 @@ struct base_peer {
 	struct pool pool;
 };
 
+/* 32/64-bit plan: entry lengths should always be representable using
+   ssize_t, which means theoretical max lengths are 2^31-1 on 32-bit
+   and 2^63-1 on 64-bit.  The file format supports up to 2^48-1 bytes
+   of entry length, but currently we artificially restrict it to
+   2^31-1 so we can use size_t and off_t on 32-bit platforms.
+   Furthermore, for coding convenience the content length is
+   restricted to (max entry length) - (max head length), even though
+   the file format supports content lengths up to (max entry length) -
+   8 if the head is empty.  This restriction could easily be lifted if
+   required. */
+
 struct base_entry {
-	uint32_t head_len;
-	uint32_t content_len;
+	uint64_t len:48, head_len:16;
 	// headers
 	// content
 };
-#define BASE_ENTRY_HEAD_LEN_MAX    UINT32_MAX
-#define BASE_ENTRY_CONTENT_LEN_MAX UINT32_MAX
+#define BASE_ENTRY_LEN_MAX ((1U<<31)-1)
+#define BASE_ENTRY_HEAD_LEN_MAX ((1U<<16)-1)
+#define BASE_ENTRY_CONTENT_LEN_MAX \
+(BASE_ENTRY_LEN_MAX - BASE_ENTRY_HEAD_LEN_MAX)
+
+inline size_t
+base_entry_len(struct base_entry* entry) { return entry->len; }
+inline size_t
+base_entry_head_len(struct base_entry* entry) { return entry->head_len; }
+inline size_t
+base_entry_content_len(struct base_entry* entry)
+{ return entry->len - entry->head_len; }
 
 struct base_header {
-	uint16_t type;
-	uint16_t len;
+	uint16_t type:4, len:12;
 	// value
 };
-#define BASE_HEADER_TYPE_MAX UINT16_MAX
-#define BASE_HEADER_LEN_MAX UINT16_MAX
+#define BASE_HEADER_TYPE_MAX ((1U<<4)-1)
+#define BASE_HEADER_LEN_MAX ((1U<<12)-1)
 #define BASE_HEADER_TYPE_ID 1
-#define BASE_HEADER_TYPE_CONTENT_MD5 100
-#define BASE_HEADER_TYPE_HEAD_MD5 (UINT16_MAX-100)
+
+inline size_t
+base_header_type(struct base_header *header) { return header->type; }
+inline size_t
+base_header_len(struct base_header *header) { return header->len; }
 
 struct base_extent {
 	off_t off;
-	size_t len;
+	uint64_t len:48, head_len:16;
 };
 
 #endif

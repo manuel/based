@@ -21,7 +21,7 @@ base_peer_populate_in_headers(struct base_peer*, struct evhttp_request *,
 			      dict_t *headers);
 int
 base_add_in_header(struct base_peer *, dict_t *headers,
-		   uint16_t type, uint16_t len, char *val);
+		   uint16_t type, uint16_t len, char *value);
 ssize_t
 base_peer_marshall_entry_head(struct base_peer *, struct base_entry **,
 			      dict_t *headers, size_t content_len);
@@ -390,7 +390,7 @@ base_peer_populate_in_headers(struct base_peer* peer,
    request data. */
 int
 base_add_in_header(struct base_peer *peer, dict_t *headers, 
-		   uint16_t type, uint16_t len, char *val)
+		   uint16_t type, uint16_t len, char *value)
 {
 	struct base_header *header;
 	dnode_t *dnode;
@@ -404,7 +404,7 @@ base_add_in_header(struct base_peer *peer, dict_t *headers,
 		return -1;
 	header->type = type;
 	header->len = len;
-	dnode_init(dnode, val);
+	dnode_init(dnode, value);
 	dict_insert(headers, dnode, header);
 	return 0;
 }
@@ -428,13 +428,14 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 		if (iter == dict_last(headers)) break;
 		iter = dict_next(headers, iter);
 	}
+	if (head_len > BASE_ENTRY_HEAD_LEN_MAX)
+		return -1;
 	
 	struct base_entry *entry;
 	if (!(entry = palloc(&peer->pool, head_len)))
 		return -1;
 	entry->head_len = head_len;
 	entry->len = head_len + content_len;
-	// todo: overflow checks
 	
 	// Serialize the headers
 	char *dest = ((char *) entry) + sizeof(struct base_entry);

@@ -69,6 +69,12 @@ struct base_header {
 #define BASE_HEADER_LEN_MAX ((1U<<12)-1)
 #define BASE_H_ID 1
 
+#define BASE_H_ENTRY_TYPE 2
+const int BASE_ENTRY_TYPE_DELETE = 1;
+
+#define BASE_HTTP_OVERRIDE "X-Override"
+#define BASE_HTTP_DELETE "DELETE"
+
 struct base_extent {
 	off_t off;
 	uint64_t len:48, head_len:16;

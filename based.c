@@ -19,11 +19,14 @@ base_peer_index_entry(struct base_peer *, struct base_entry *, off_t);
 int
 base_peer_populate_in_headers(struct base_peer*, struct evhttp_request *, 
 			      dict_t *headers);
+int
+base_add_in_header(struct base_peer *, dict_t *headers,
+		   uint16_t type, uint16_t len, char *val);
 ssize_t
 base_peer_marshall_entry_head(struct base_peer *, struct base_entry **,
 			      dict_t *headers, size_t content_len);
 struct base_header *
-base_entry_get_header(struct base_entry *, int type);
+base_entry_get_header(struct base_entry *, uint16_t type);
 char *
 base_header_get_value(struct base_header *);
 int
@@ -233,9 +236,9 @@ base_header_cmp(struct base_header *h1, struct base_header *h2)
 	return h1->type - h2->type;
 }
 
-/* Construct an entry with an ID header and the user-supplied content,
-   write it to the log file and add it to the index.  If write()
-   fails, we're hosed.  (Yes, this will be improved.) */
+/* Construct an entry with various headers and the user-supplied
+   content, write it to the log file and add it to the index.  If
+   write() fails, we're hosed.  (Yes, this will be improved.) */
 int
 base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 {
@@ -284,9 +287,12 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
    and when we are redoing the log. -- If there's already a document
    in the index with that ID, simply update the index (dictionary-)
    node with the extent of the new entry.  Otherwise we have to insert
-   a new index node, mapping the ID to the extent of the new entry. */
+   a new index node, mapping the ID to the extent of the new entry.
+   Or, if the entry is a delete entry, we have to remove any existing
+   mapping.  (Detail: the ID and extent of a mapping are allocated
+   using a single malloc.) */
 int
-base_peer_index_entry(struct base_peer *peer, 
+base_peer_index_entry(struct base_peer *peer,
 		      struct base_entry *entry, 
 		      off_t off)
 {
@@ -296,17 +302,31 @@ base_peer_index_entry(struct base_peer *peer,
 		return -1;
 	id = base_header_get_value(id_header);
 
+	struct base_header *type_header;
+	int delete = 0;
+	if (type_header = base_entry_get_header(entry, BASE_H_ENTRY_TYPE)) {
+		uint8_t *entry_type = base_header_get_value(type_header);
+		if (*entry_type == BASE_ENTRY_TYPE_DELETE)
+			delete = 1;
+	}
+
 	struct base_extent *extent;
 	dnode_t *dnode;
 	if (dnode = dict_lookup(&peer->index, id)) {
 		extent = dnode_get(dnode);
-		extent->off = off;
-		extent->len = entry->len;
-		extent->head_len = entry->head_len;
+		if (delete) {
+			dict_delete(&peer->index, dnode);
+			free(dnode);
+			free(extent);
+		} else {
+			extent->off = off;
+			extent->len = entry->len;
+			extent->head_len = entry->head_len;
+		}
 		return 0;
 	} else {
+		if (delete) return 0;
 		if (dict_isfull(&peer->index)) return -1;
-		// Use a combined buffer for both the extent and the ID copy.
 		size_t id_len = id_header->len;
 		char *combined_buf, *id_copy;
 		size_t combined_buf_len =
@@ -339,19 +359,54 @@ base_peer_populate_in_headers(struct base_peer* peer,
 			      struct evhttp_request *req, 
 			      dict_t *headers)
 {
+	// ID header, take ID from request URL.
 	char *id = req->uri;
 	size_t id_len = strlen(id);
-	struct base_header *id_header;
-	dnode_t *id_dnode;
+	uint16_t header_len;
 	if (!id) return -1;
-	if ((id_len == 0) || (id_len > (BASE_HEADER_LEN_MAX - 1)))  return -1;
-	if (!(id_dnode = palloc(&peer->pool, sizeof(dnode_t)))) return -1;
-	if (!(id_header = palloc(&peer->pool, sizeof(struct base_header))))
+	if ((id_len + 1) > BASE_HEADER_LEN_MAX)
 		return -1;
-	id_header->type = BASE_H_ID;
-	id_header->len = id_len + 1;
-	dnode_init(id_dnode, id);
-	dict_insert(headers, id_dnode, id_header);
+	header_len = id_len + 1;
+	if (base_add_in_header(peer, headers,
+			       BASE_H_ID, header_len, id) == -1)
+		return -1;
+
+	// Entry type header, look for method override -> DELETE.
+	const char *override;
+	if ((override = evhttp_find_header(req->input_headers,
+					   BASE_HTTP_OVERRIDE))
+	    && (strcasecmp(override, BASE_HTTP_DELETE) == 0)) {
+		if (base_add_in_header(peer, headers,
+				       BASE_H_ENTRY_TYPE, 1,
+				       (char *) &BASE_ENTRY_TYPE_DELETE) == -1)
+			return -1;
+	}
+	
+	return 0;
+}
+
+/* Add a header to an incoming entry.  Memory (e.g. for the value)
+   should be allocated by the caller from the write pool or point to
+   request data. */
+int
+base_add_in_header(struct base_peer *peer, dict_t *headers, 
+		   uint16_t type, uint16_t len, char *val)
+{
+	struct base_header *header;
+	dnode_t *dnode;
+	if (type > BASE_HEADER_TYPE_MAX)
+		return -1;
+	if (len > BASE_HEADER_LEN_MAX)
+		return -1;
+	if (!(dnode = palloc(&peer->pool, sizeof(dnode_t))))
+		return -1;
+	if (!(header = palloc(&peer->pool, sizeof(struct base_header))))
+		return -1;
+	header->type = type;
+	header->len = len;
+	dnode_init(dnode, val);
+	dict_insert(headers, dnode, header);
+	return 0;
 }
 
 /* Create the binary representation of the head of an entry so that
@@ -404,7 +459,7 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 }
 
 struct base_header *
-base_entry_get_header(struct base_entry *entry, int type)
+base_entry_get_header(struct base_entry *entry, uint16_t type)
 {
 	char *header_ptr;
 	struct base_header *header;

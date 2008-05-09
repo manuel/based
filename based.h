@@ -74,7 +74,7 @@ struct base_header {
    they are so common.  The value of the entry type header is a single
    uint8_t. */
 #define BASE_H_ENTRY_TYPE 2
-const int BASE_ENTRY_TYPE_DELETE = 1;
+const uint8_t BASE_ENTRY_TYPE_DELETE = 1;
 
 /* Currently, libevent is limited to receiving GET and POST requests,
    so one can achieve a DELETE by sending an X-Override header with

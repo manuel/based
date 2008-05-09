@@ -69,12 +69,21 @@ struct base_header {
 #define BASE_HEADER_LEN_MAX ((1U<<12)-1)
 #define BASE_H_ID 1
 
+/* The entry type header is used for some kinds of entries, such as
+   delete entries.  Normal put entries have no type, simply because
+   they are so common.  The value of the entry type header is a single
+   uint8_t. */
 #define BASE_H_ENTRY_TYPE 2
 const int BASE_ENTRY_TYPE_DELETE = 1;
 
+/* Currently, libevent is limited to receiving GET and POST requests,
+   so one can achieve a DELETE by sending an X-Override header with
+   the value DELETE in a request. */
 #define BASE_HTTP_OVERRIDE "X-Override"
 #define BASE_HTTP_DELETE "DELETE"
 
+/* The index maps document IDs to extent, which record the position of
+   the entry with that ID in the log file. */
 struct base_extent {
 	off_t off;
 	uint64_t len:48, head_len:16;

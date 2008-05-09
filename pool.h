@@ -11,8 +11,8 @@
    have a default size, but if an allocation request exceeds that
    size, the pool will allocate a larger page. */
 
-#ifndef _POOL_H
-#define _POOL_H
+#ifndef POOL_H
+#define POOL_H
 
 #include <stdlib.h>
 

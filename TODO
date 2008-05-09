@@ -6,7 +6,7 @@ Use only path component of URL as ID, not e.g. args after ? or
 
 test suite
 
-PUT, DELETE
+PUT
 
 Move httpd into own, untrusted process.
 
@@ -19,3 +19,5 @@ replication
 
 Unicode support for IDs?
 URL-decoding issues
+
+Use a pool for non-sendfile GETs?

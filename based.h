@@ -1,5 +1,5 @@
-#ifndef _BASED_H
-#define _BASED_H
+#ifndef BASED_H
+#define BASED_H
 
 #include <err.h>
 #include <errno.h>
@@ -19,7 +19,7 @@
 #include "pool.h"
 
 #define BASE_NAME "based"
-#define BASE_VERSION "0.0.3"
+#define BASE_VERSION "0.0.4 alpha"
 
 #define BASE_DEFAULT_LOG_FILE "./log"
 #define BASE_DEFAULT_HTTP_ADDR "127.0.0.1"
@@ -27,7 +27,7 @@
 
 /* Requires libevent 1.4.3 plus sendfile patches:
    http://monkeymail.org/archives/libevent-users/2008-May/thread.html */
-//#define BASE_USE_SENDFILE
+#define BASE_USE_SENDFILE 0
 
 struct base_peer {
 	char *log_file;
@@ -61,12 +61,19 @@ struct base_entry {
 #define BASE_ENTRY_CONTENT_LEN_MAX \
 (BASE_ENTRY_LEN_MAX - BASE_ENTRY_HEAD_LEN_MAX)
 
+/* Headers are small items of data associated with an entry.  For
+   example, an entry's ID is stored as a header, BASE_H_ID.  A header
+   has a type code, a length, and binary value. */
 struct base_header {
 	uint16_t type:4, len:12;
 	// value
 };
 #define BASE_HEADER_TYPE_MAX ((1U<<4)-1)
 #define BASE_HEADER_LEN_MAX ((1U<<12)-1)
+
+/* The ID header stores the document ID of an entry.  It is stored as
+   a NULL-terminated string for easy interop with C string
+   functions. */
 #define BASE_H_ID 1
 
 /* The entry type header is used for some kinds of entries, such as
@@ -77,13 +84,14 @@ struct base_header {
 const uint8_t BASE_ENTRY_TYPE_DELETE = 1;
 
 /* Currently, libevent is limited to receiving GET and POST requests,
-   so one can achieve a DELETE by sending an X-Override header with
-   the value DELETE in a request. */
+   so one has to send an X-Override header with the value DELETE in a
+   POST request to delete an entry. */
 #define BASE_HTTP_OVERRIDE "X-Override"
 #define BASE_HTTP_DELETE "DELETE"
 
-/* The index maps document IDs to extent, which record the position of
-   the entry with that ID in the log file. */
+/* The index maps document IDs to extents, which record the position
+   of the entry with that ID in the log file.  When an entry is
+   deleted, it is simply removed from the index. */
 struct base_extent {
 	off_t off;
 	uint64_t len:48, head_len:16;

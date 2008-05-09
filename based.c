@@ -96,7 +96,7 @@ base_peer_configure(struct base_peer *peer, int argc, char **argv)
 	printf("Log file %s\n", peer->log_file);
 	printf("HTTP address %s\n", peer->http_addr);
 	printf("HTTP port %d\n", peer->http_port);
-#ifdef BASE_USE_SENDFILE
+#if BASE_USE_SENDFILE
 	printf("Sendfile enabled\n");
 #endif	
 }
@@ -194,7 +194,7 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 	}
 }
 
-#ifdef BASE_USE_SENDFILE
+#if BASE_USE_SENDFILE
 
 int
 base_peer_send_content(struct base_peer *peer, 
@@ -330,7 +330,7 @@ base_peer_index_entry(struct base_peer *peer,
 		size_t id_len = id_header->len;
 		char *combined_buf, *id_copy;
 		size_t combined_buf_len =
-			sizeof(struct base_extent) + id_len + 1;
+			sizeof(struct base_extent) + id_len;
 		if (!(combined_buf = malloc(combined_buf_len)))
 			return -1;
 		memset(combined_buf, 0, combined_buf_len);
@@ -339,7 +339,7 @@ base_peer_index_entry(struct base_peer *peer,
 		extent->len = entry->len;
 		extent->head_len = entry->head_len;
 		id_copy = combined_buf + sizeof(struct base_extent);
-		memcpy(id_copy, id, id_len + 1);
+		memcpy(id_copy, id, id_len);
 		if (dict_alloc_insert(&peer->index, id_copy, extent)) {
 			return 0;
 		} else {
@@ -352,14 +352,14 @@ base_peer_index_entry(struct base_peer *peer,
 /* Fill the headers dictionary with headers that should be written to
    disk for the entry corresponding to a HTTP PUT request.  New memory
    for the headers should be allocated from the write pool; it is also
-   to OK to reference data in the request, as the headers will be
-   written before the request is destroyed. */
+   OK to reference data in the request, as the headers will be written
+   before the request is destroyed. */
 int
 base_peer_populate_in_headers(struct base_peer* peer,
 			      struct evhttp_request *req, 
 			      dict_t *headers)
 {
-	// ID header, take ID from request URL.
+	// ID header, reference ID from request URL.
 	char *id = req->uri;
 	size_t id_len = strlen(id);
 	uint16_t header_len;
@@ -371,7 +371,7 @@ base_peer_populate_in_headers(struct base_peer* peer,
 			       BASE_H_ID, header_len, id) == -1)
 		return -1;
 
-	// Entry type header, look for method override -> DELETE.
+	// If the method is DELETE set the entry type to delete.
 	const char *override;
 	if ((override = evhttp_find_header(req->input_headers,
 					   BASE_HTTP_OVERRIDE))
@@ -418,7 +418,9 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 			      dict_t *headers, 
 			      size_t content_len)
 {
-	// Get the total length of the head, including headers
+	// Get the total length of the head, including all headers.
+	// Todo: There is the unlikely possibility of an overflow of
+	// the head_len if there are very many headers.
 	size_t head_len = sizeof(struct base_entry);
 	const struct base_header *header;
 	dnode_t *iter = dict_first(headers);
@@ -428,8 +430,7 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 		if (iter == dict_last(headers)) break;
 		iter = dict_next(headers, iter);
 	}
-	if (head_len > BASE_ENTRY_HEAD_LEN_MAX)
-		return -1;
+	if (head_len > BASE_ENTRY_HEAD_LEN_MAX)	return -1;
 	
 	struct base_entry *entry;
 	if (!(entry = palloc(&peer->pool, head_len)))
@@ -437,7 +438,9 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 	entry->head_len = head_len;
 	entry->len = head_len + content_len;
 	
-	// Serialize the headers
+	// Serialize the headers by looping through the supplied
+	// dictionary and writing them into their destination
+	// locations in the space allocated in the entry's head.
 	char *dest = ((char *) entry) + sizeof(struct base_entry);
 	struct base_header *dest_header;
 	char *dest_value, *value;
@@ -465,6 +468,7 @@ base_entry_get_header(struct base_entry *entry, uint16_t type)
 	char *header_ptr;
 	struct base_header *header;
 	off_t off = sizeof(struct base_entry);
+	if (type > BASE_HEADER_TYPE_MAX) return NULL;
 	while(off < entry->head_len) {
 		header_ptr = ((char *) entry) + off;
 		header = (struct base_header *) header_ptr;

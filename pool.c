@@ -46,7 +46,7 @@ palloc(struct pool *pool, size_t size)
 }
 
 static void
-pool_free_page_callback(list_t *pages, lnode_t *lnode, void *context)
+pool_free_page_callback(list_t *pages, lnode_t *lnode, void *arg)
 {
 	free(lnode_get(lnode));
 }
@@ -56,6 +56,9 @@ pool_reset(struct pool *pool)
 {
 	list_process(&pool->old_pages, NULL, pool_free_page_callback);
 	list_destroy_nodes(&pool->old_pages);
+	// If the current page is larger than the default size, free
+	// it too, so we don't keep a possibly very large page
+	// allocated for long.
 	if (pool->cur_size > pool->default_page_size) {
 		free(pool->cur_page);
   		pool->cur_page = NULL;

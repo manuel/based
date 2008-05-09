@@ -109,7 +109,7 @@ base_peer_init(struct base_peer *peer)
 	dict_init(&peer->index, DICTCOUNT_T_MAX,
 		  (int (*)(const void *, const void *)) strcmp);
 	
-	pool_init(&peer->write_pool, POOL_DEFAULT_PAGE_SIZE);
+	pool_init(&peer->pool, POOL_DEFAULT_PAGE_SIZE);
 
 	if (!event_init())
 		errx(EXIT_FAILURE, "Cannot initialize libevent");
@@ -271,12 +271,12 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	if (base_peer_index_entry(peer, entry, old_log_off) == -1)
 		goto err;
 
-	pool_bump(&peer->write_pool);
+	pool_reset(&peer->pool);
 	evhttp_send_reply(req, HTTP_OK, "OK", NULL);
 	return 0;
 
  err:
-	pool_bump(&peer->write_pool);
+	pool_reset(&peer->pool);
 	return -1;
 }
 
@@ -292,7 +292,7 @@ base_peer_index_entry(struct base_peer *peer,
 {
 	char *id;
 	struct base_header *id_header;
-	if (!(id_header = base_entry_get_header(entry, BASE_HEADER_TYPE_ID)))
+	if (!(id_header = base_entry_get_header(entry, BASE_H_ID)))
 		return -1;
 	id = base_header_get_value(id_header);
 
@@ -345,10 +345,10 @@ base_peer_populate_in_headers(struct base_peer* peer,
 	dnode_t *id_dnode;
 	if (!id) return -1;
 	if ((id_len == 0) || (id_len > (BASE_HEADER_LEN_MAX - 1)))  return -1;
-	if (!(id_dnode = palloc(&peer->write_pool, sizeof(dnode_t)))) return -1;
-	if (!(id_header = palloc(&peer->write_pool, sizeof(struct base_header))))
+	if (!(id_dnode = palloc(&peer->pool, sizeof(dnode_t)))) return -1;
+	if (!(id_header = palloc(&peer->pool, sizeof(struct base_header))))
 		return -1;
-	id_header->type = BASE_HEADER_TYPE_ID;
+	id_header->type = BASE_H_ID;
 	id_header->len = id_len + 1;
 	dnode_init(id_dnode, id);
 	dict_insert(headers, id_dnode, id_header);
@@ -375,7 +375,7 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 	}
 	
 	struct base_entry *entry;
-	if (!(entry = palloc(&peer->write_pool, head_len))) 
+	if (!(entry = palloc(&peer->pool, head_len)))
 		return -1;
 	entry->head_len = head_len;
 	entry->len = head_len + content_len;

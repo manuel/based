@@ -1,3 +1,16 @@
+/* Simple "bump pointer" pool for event processing: all memory needed
+   for handling a request is allocated from the pool.  When the
+   request is served the pool is reset to a standard size.  This means
+   that most requests can be served without a call to malloc.
+
+   The pool maintains a current page, from which allocations are done,
+   and a list of older pages.  When the pool is reset, all pages but
+   one are freed.
+
+   Data is aligned on an 8-byte boundary, like standard malloc.  Pages
+   have a default size, but if an allocation request exceeds that
+   size, the pool will allocate a larger page. */
+
 #ifndef _POOL_H
 #define _POOL_H
 
@@ -23,6 +36,6 @@ void *
 palloc(struct pool *, size_t);
 
 void
-pool_bump(struct pool *);
+pool_reset(struct pool *);
 
 #endif

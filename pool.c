@@ -52,7 +52,7 @@ pool_free_page_callback(list_t *pages, lnode_t *lnode, void *context)
 }
 
 void
-pool_bump(struct pool *pool)
+pool_reset(struct pool *pool)
 {
 	list_process(&pool->old_pages, NULL, pool_free_page_callback);
 	list_destroy_nodes(&pool->old_pages);

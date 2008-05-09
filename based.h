@@ -37,9 +37,7 @@ struct base_peer {
 	char *http_addr;
 	in_port_t http_port;
 	struct evhttp *httpd;
-	/* This pool holds various data objects during the PUT of an
-	   entry and is bumped afterwards.*/
-	struct pool write_pool;
+	struct pool pool;     // For allocations during writes.
 };
 
 /* 32/64-bit plan: entry lengths should always be representable using
@@ -69,7 +67,7 @@ struct base_header {
 };
 #define BASE_HEADER_TYPE_MAX ((1U<<4)-1)
 #define BASE_HEADER_LEN_MAX ((1U<<12)-1)
-#define BASE_HEADER_TYPE_ID 1
+#define BASE_H_ID 1
 
 struct base_extent {
 	off_t off;

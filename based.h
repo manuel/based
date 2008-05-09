@@ -72,8 +72,17 @@ struct base_header {
 #define BASE_HEADER_LEN_MAX ((1U<<12)-1)
 
 /* The ID header stores the document ID of an entry.  It is stored as
-   a NULL-terminated string for easy interop with C string
-   functions. */
+   a NULL-terminated UTF-8 encoded string for easy interop with C
+   string functions.
+
+   IDs have a hierarchical structure like UNIX pathnames.  All IDs
+   start with a slash ('/') and cannot end with one.  Thus, "/foo" and
+   "/docs/hello" are valid IDs whereas "/" and "/bar/" are not.
+
+   IDs are Unicode strings and may need to be encoded in URLs.  Per
+   RFC 3986, characters should be translated to UTF-8 octets, and then
+   those octets that fall outside the reserved set should be percent
+   encoded. */
 #define BASE_H_ID 1
 
 /* The entry type header is used for some kinds of entries, such as

@@ -167,7 +167,7 @@ base_peer_http_callback(struct evhttp_request *req, void *arg)
 	
 	switch (req->type) {
 	case EVHTTP_REQ_GET:
-		if (base_peer_get(peer, req) == 0) return;			
+		if (base_peer_get(peer, req) == 0) return;
 	case EVHTTP_REQ_POST:
 		if (base_peer_put(peer, req) == 0) return;
 	}

@@ -469,8 +469,7 @@ base_dir_set_child(struct base_dir *dir, struct base_entry *entry,
 		extent->len = entry->len;
 		extent->head_len = entry->head_len;
 		name_copy = combined_buf + sizeof(struct base_extent);
-		memcpy(name_copy, name, name_len + 1);
-		// Todo: Put dnode into combined buffer.
+		memcpy(name_copy, name, name_len);
 		if (dict_alloc_insert(&dir->children, name_copy, extent)) {
 			return 0;
 		} else {
@@ -488,8 +487,9 @@ base_dir_ensure_sub_dir(struct base_dir *parent, char *name, size_t name_len)
 	char *combined_buf, *name_copy;
 	size_t combined_buf_len = sizeof(struct base_dir) + name_len + 1;
 	if (!(combined_buf = malloc(combined_buf_len))) return NULL;
+	memset(combined_buf, 0, combined_buf_len);
 	name_copy = combined_buf + sizeof(struct base_dir);
-	memcpy(name_copy, name, name_len + 1);
+	memcpy(name_copy, name, name_len);
 	dir = (struct base_dir *) combined_buf;
 	base_dir_init(dir, parent, name_copy);
 	dnode_t *dnode = malloc(sizeof(dnode_t));
@@ -529,6 +529,8 @@ base_peer_remove_index_entry(struct base_peer *peer, struct base_entry *entry,
 			return -1;
 		}
 	}
+
+	return 0;
 }
 
 int
@@ -783,4 +785,13 @@ base_parse_path_str(struct pool *pool, char *str)
 		i += name_len;
 	}
 	return first;
+}
+
+void
+base_print_path(struct base_path *path)
+{
+	while(path) {
+		printf("/%s", path->name);
+		path = path->next;
+	}
 }

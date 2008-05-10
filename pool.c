@@ -57,7 +57,7 @@ pool_calloc(struct pool *pool, size_t size)
 char *
 pool_strndup(struct pool *pool, const char *s, size_t n)
 {
-	size_t slen = strlen(s), len = (n > len ? len : n);
+	size_t slen = strlen(s), len = (n > slen ? slen : n);
 	char *buf = pool_malloc(pool, len + 1);
 	if (buf) {
 		memcpy(buf, s, len);

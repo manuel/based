@@ -104,9 +104,7 @@ base_peer_configure(struct base_peer *peer, int argc, char **argv)
 	printf("Log file %s\n", peer->log_file);
 	printf("HTTP address %s\n", peer->http_addr);
 	printf("HTTP port %d\n", peer->http_port);
-#if BASE_USE_SENDFILE
-	printf("Sendfile enabled\n");
-#endif	
+	printf("Sendfile %s\n", BASE_USE_SENDFILE ? "enabled" : "disabled");
 }
 
 void
@@ -187,32 +185,41 @@ base_peer_http_callback(struct evhttp_request *req, void *arg)
 int
 base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 {
-	// Flimsy!
 	char *uri;
 	struct base_path *path;
 	struct base_dir *dir = &peer->root;
-	if (!(uri = evhttp_decode_uri(req->uri)))
+
+	if (!(uri = evhttp_decode_uri(req->uri))) 
 		return -1;
-	if (!(path = base_parse_path_str(&peer->pool, uri)))
-		goto err;
+
+	path = base_parse_path_str(&peer->pool, uri);
 	free(uri);
-	do {
+	if (!path) return -1;
+	
+	for(;;) {
 		if (strlen(path->comp) > 0) {
-			if (path->next != NULL) {
+			if (path->next == NULL) {
+				// End of path, return entry.
+				return base_peer_get_entry(peer, req, dir,
+							   path->comp);
+			} else {
+				// There are further components in
+				// path, enter sub-directory and
+				// continue.
 				dir = base_dir_sub_dir(dir, path->comp);
 				path = path->next;
-			} else {
-				return base_peer_get_entry(peer, req, dir, 
-							   path->comp);
+				continue;
 			}
 		} else {
+			// Empty component, return directory listing.
+			// (An empty component indicates that the
+			// path denotes a directory, e.g. /foo/ is
+			// represented as the components "foo" and "".)
 			return base_peer_get_dir(peer, req, dir);
 		}
-	} while(path);
-	return -1;
- err:
-	free(uri);
-	return -1;
+	}
+
+	return -1; // never reached
 }
 
 int
@@ -341,14 +348,15 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	return 0;
 }
 
-/* Add an entry to the index.  This is called when a new entry is PUT,
-   and when we are redoing the log. -- If there's already a document
-   in the index with that ID, simply update the index (dictionary-)
-   node with the extent of the new entry.  Otherwise we have to insert
-   a new index node, mapping the ID to the extent of the new entry.
-   Or, if the entry is a delete entry, we have to remove any existing
-   mapping.  (Detail: the ID and extent of a mapping are allocated
-   using a single malloc.) */
+/* Add an entry to the directory index.  This is called when a new
+   entry is PUT or DELETEd via the HTTP interface, and when we are
+   redoing the log at startup. -- If there's already a document in the
+   index with that ID, simply update the index node with the extent of
+   the new entry.  Otherwise we have to insert a new index node (and
+   maybe directory nodes above), mapping the ID to the extent of the
+   new entry.  Or, if the entry is a delete entry, we have to remove
+   any existing mapping (and maybe now-empty directory nodes
+   above). */
 int
 base_peer_index_entry(struct base_peer *peer,
 		      struct base_entry *entry, 
@@ -369,8 +377,26 @@ base_peer_index_entry(struct base_peer *peer,
 	}
 
 	struct base_path *path;
+	struct base_dir *dir = &peer->root;
 	if (!(path = base_parse_path(&peer->pool, id)))
 		return -1;
+	
+	do {
+		if (strlen(path->comp) > 0) {
+			if (path->next != NULL) {
+				dir = base_dir_ensure_sub_dir(dir, path->comp);
+				path = path->next;
+			} else {
+				return base_peer_get_entry(peer, req, dir, 
+							   path->comp);
+			}
+		} else {
+			// The path addresses a directory.  This
+			// shouldn't really happen.  Todo: Detect this
+			// earlier
+			return -1;
+		}
+	} while(path);
 
 	struct base_extent *extent;
 	dnode_t *dnode;
@@ -606,7 +632,6 @@ base_dir_init(struct base_dir *dir)
 struct base_path *
 base_parse_path_str(struct pool *pool, char *str)
 {
-	// Cheesy!
 	struct base_path *top = NULL, *path = NULL, *prev = NULL;
 	size_t len = strlen(str), i = 0, comp_len;
 	char *comp, *end;

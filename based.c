@@ -608,8 +608,10 @@ base_req_is_delete(struct evhttp_request *req)
 	const char *override;
 	if (req->type == EVHTTP_REQ_DELETE) 
 		return 1;
-	override = evhttp_find_header(req->input_headers, BASE_HTTP_OVERRIDE);
-	return strcasecmp(override, BASE_HTTP_DELETE) == 0;
+	if (override = evhttp_find_header(req->input_headers, BASE_HTTP_OVERRIDE))
+		return strcasecmp(override, BASE_HTTP_DELETE) == 0;
+	else
+		return 0;
 }
 
 /* Add a header to an incoming entry.  Memory (e.g. for the value)

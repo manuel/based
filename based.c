@@ -538,7 +538,7 @@ base_kill_index_entry(struct base_dir *dir, char *name)
 	if (dnode) {
 		dict_delete(&dir->children, dnode);
 		char *combined_buf = dnode_get(dnode);
-		free(buf);
+		free(combined_buf);
 		free(dnode);
 	}
 	return base_kill_dir_if_empty(dir);

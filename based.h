@@ -29,15 +29,20 @@
    http://monkeymail.org/archives/libevent-users/2008-May/thread.html */
 #define BASE_USE_SENDFILE 0
 
+struct base_dir {
+	dict_t children; // name -> extent
+	dict_t sub_dirs; // name -> dir
+};
+
 struct base_peer {
 	char *log_file;
 	int log_fd;
 	off_t log_off;
-	dict_t index;
+	struct base_dir root;
 	char *http_addr;
 	in_port_t http_port;
 	struct evhttp *httpd;
-	struct pool pool;     // For allocations during writes.
+	struct pool pool;
 };
 
 /* 32/64-bit plan: entry lengths should always be representable using
@@ -85,10 +90,9 @@ struct base_header {
    encoded. */
 #define BASE_H_ID 1
 
-/* The entry type header is used for some kinds of entries, such as
-   delete entries.  Normal put entries have no type, simply because
-   they are so common.  The value of the entry type header is a single
-   uint8_t. */
+/* The entry type header is currently only used for delete entries.
+   Normal put entries have no type, simply because they are so common.
+   The value of the entry type header is a single uint8_t. */
 #define BASE_H_ENTRY_TYPE 2
 const uint8_t BASE_ENTRY_TYPE_DELETE = 1;
 
@@ -98,12 +102,14 @@ const uint8_t BASE_ENTRY_TYPE_DELETE = 1;
 #define BASE_HTTP_OVERRIDE "X-Override"
 #define BASE_HTTP_DELETE "DELETE"
 
-/* The index maps document IDs to extents, which record the position
-   of the entry with that ID in the log file.  When an entry is
-   deleted, it is simply removed from the index. */
 struct base_extent {
 	off_t off;
 	uint64_t len:48, head_len:16;
+};
+
+struct base_path {
+	char *comp;
+	struct base_path *next;
 };
 
 #endif

@@ -32,7 +32,7 @@ pool_new_page(struct pool *pool, size_t size)
 }
 
 void *
-palloc(struct pool *pool, size_t size)
+pool_malloc(struct pool *pool, size_t size)
 {
 	if (pool->cur_page != NULL) {
 		size_t off = pool->cur_used +
@@ -43,6 +43,28 @@ palloc(struct pool *pool, size_t size)
 		}
 	}
 	return pool_new_page(pool, size);
+}
+
+void *
+pool_calloc(struct pool *pool, size_t size)
+{
+	void *buf = pool_malloc(pool, size);
+	if (buf)
+		memset(buf, 0, size);
+	return buf;
+}
+
+char *
+pool_strndup(struct pool *pool, const char *s, size_t n)
+{
+	size_t slen = strlen(s), len = (n > len ? len : n);
+	char *buf = pool_malloc(pool, len + 1);
+	if (buf) {
+		memcpy(buf, s, len);
+		buf[len] = '\0';
+		return buf;
+	} else
+		return NULL;
 }
 
 static void

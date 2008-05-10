@@ -33,6 +33,14 @@ int
 base_pread_all(int, void *, size_t, off_t);
 int
 base_writev_all(int, struct iovec *, int);
+void
+base_dir_init(struct base_dir *);
+struct base_dir *
+base_dir_sub_dir(struct base_dir *, char *);
+struct base_extent *
+base_dir_child(struct base_dir *, char *);
+struct base_path *
+base_parse_path_str(struct pool *, char *);
 
 int
 main(int argc, char **argv)
@@ -109,8 +117,7 @@ base_peer_init(struct base_peer *peer)
 				 S_IRUSR | S_IWUSR)) == -1)
 		err(EXIT_FAILURE, "Cannot open log file");
 
-	dict_init(&peer->index, DICTCOUNT_T_MAX,
-		  (int (*)(const void *, const void *)) strcmp);
+	base_dir_init(&peer->root);
 	
 	pool_init(&peer->pool, POOL_DEFAULT_PAGE_SIZE);
 
@@ -164,26 +171,58 @@ void
 base_peer_http_callback(struct evhttp_request *req, void *arg)
 {
 	struct base_peer *peer = (struct base_peer *) arg;
+	int res = -1;
 	
 	switch (req->type) {
 	case EVHTTP_REQ_GET:
-		if (base_peer_get(peer, req) == 0) return;
+		res = base_peer_get(peer, req);
 	case EVHTTP_REQ_POST:
-		if (base_peer_put(peer, req) == 0) return;
+		res = base_peer_put(peer, req);
 	}
+	pool_reset(&peer->pool);
 
-	evhttp_send_error(req, HTTP_BADREQUEST, "Bad Request");
+	if (res == -1) evhttp_send_error(req, 503, "Error");
 }
 
 int
 base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 {
-	char *id = req->uri;
-	dnode_t *dnode;
+	// Flimsy!
+	char *uri;
+	struct base_path *path;
+	struct base_dir *dir = &peer->root;
+	if (!(uri = evhttp_decode_uri(req->uri)))
+		return -1;
+	if (!(path = base_parse_path_str(&peer->pool, uri)))
+		goto err;
+	free(uri);
+	do {
+		if (strlen(path->comp) > 0) {
+			if (path->next != NULL) {
+				dir = base_dir_sub_dir(dir, path->comp);
+				path = path->next;
+			} else {
+				return base_peer_get_entry(peer, req, dir, 
+							   path->comp);
+			}
+		} else {
+			return base_peer_get_dir(peer, req, dir);
+		}
+	} while(path);
+	return -1;
+ err:
+	free(uri);
+	return -1;
+}
+
+int
+base_peer_get_entry(struct base_peer *peer, 
+		    struct evhttp_request *req,
+		    struct base_dir *dir,
+		    char *name)
+{
 	struct base_extent *extent;
-	if (!id) return -1;
-	if (dnode = dict_lookup(&peer->index, id)) {
-		extent = (struct base_extent *) dnode_get(dnode);
+	if (extent = base_dir_child(dir, name)) {
 		if (base_peer_send_content(peer, req, extent) == -1)
 			return -1;
 		evhttp_send_reply(req, HTTP_OK, "OK", NULL);
@@ -192,6 +231,30 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 		evhttp_send_error(req, 404, "Not Found");
 		return 0;
 	}
+}
+
+int
+base_peer_get_dir(struct base_peer *peer, 
+		  struct evhttp_request *req,
+		  struct base_dir *dir)
+{
+	return -1;
+}
+
+struct base_extent *
+base_dir_child(struct base_dir *dir, char *name)
+{
+	dnode_t *dnode = dict_lookup(&dir->children, name);
+	if (dnode) return dnode_get(dnode);
+	else return NULL;
+}
+
+struct base_dir *
+base_dir_sub_dir(struct base_dir *dir, char *name)
+{
+	dnode_t *dnode = dict_lookup(&dir->sub_dirs, name);
+	if (dnode) return dnode_get(dnode);
+	else return NULL;
 }
 
 #if BASE_USE_SENDFILE
@@ -252,35 +315,30 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 		  (int (*)(const void *, const void *)) base_header_cmp);
 	dict_allow_dupes(&headers);
 	if (base_peer_populate_in_headers(peer, req, &headers) == -1)
-		goto err;
+		return -1;
 	
 	struct base_entry *entry;
 	ssize_t head_len;
 	if ((head_len =
 	     base_peer_marshall_entry_head(peer, &entry, 
 					   &headers, content_len)) == -1)
-		goto err;
+		return -1;
 
 	struct iovec vec[2] = {
 		{ entry, head_len },
 		{ content_buf, content_len }
 	};
 	if (base_writev_all(peer->log_fd, vec, 2) == -1)
-		goto err;
+		return -1;
 
 	off_t old_log_off = peer->log_off;
 	peer->log_off += (head_len + content_len);
 	
 	if (base_peer_index_entry(peer, entry, old_log_off) == -1)
-		goto err;
+		return -1;
 
-	pool_reset(&peer->pool);
 	evhttp_send_reply(req, HTTP_OK, "OK", NULL);
 	return 0;
-
- err:
-	pool_reset(&peer->pool);
-	return -1;
 }
 
 /* Add an entry to the index.  This is called when a new entry is PUT,
@@ -309,6 +367,10 @@ base_peer_index_entry(struct base_peer *peer,
 		if (*entry_type == BASE_ENTRY_TYPE_DELETE)
 			delete = 1;
 	}
+
+	struct base_path *path;
+	if (!(path = base_parse_path(&peer->pool, id)))
+		return -1;
 
 	struct base_extent *extent;
 	dnode_t *dnode;
@@ -363,7 +425,8 @@ base_peer_populate_in_headers(struct base_peer* peer,
 	char *id = req->uri;
 	size_t id_len = strlen(id);
 	uint16_t header_len;
-	if (!id) return -1;
+	if (!id) 
+		return -1;
 	if ((id_len + 1) > BASE_HEADER_LEN_MAX)
 		return -1;
 	header_len = id_len + 1;
@@ -398,9 +461,9 @@ base_add_in_header(struct base_peer *peer, dict_t *headers,
 		return -1;
 	if (len > BASE_HEADER_LEN_MAX)
 		return -1;
-	if (!(dnode = palloc(&peer->pool, sizeof(dnode_t))))
+	if (!(dnode = pool_malloc(&peer->pool, sizeof(dnode_t))))
 		return -1;
-	if (!(header = palloc(&peer->pool, sizeof(struct base_header))))
+	if (!(header = pool_malloc(&peer->pool, sizeof(struct base_header))))
 		return -1;
 	header->type = type;
 	header->len = len;
@@ -433,7 +496,7 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 	if (head_len > BASE_ENTRY_HEAD_LEN_MAX)	return -1;
 	
 	struct base_entry *entry;
-	if (!(entry = palloc(&peer->pool, head_len)))
+	if (!(entry = pool_malloc(&peer->pool, head_len)))
 		return -1;
 	entry->head_len = head_len;
 	entry->len = head_len + content_len;
@@ -524,4 +587,44 @@ base_writev_all(int fd, struct iovec *vec, int count)
 		}
 	}
 	return 0;
+}
+
+void
+base_dir_init(struct base_dir *dir)
+{
+	dict_init(&dir->children, DICTCOUNT_T_MAX,
+		  (int (*)(const void *, const void *)) strcmp);
+	dict_init(&dir->sub_dirs, DICTCOUNT_T_MAX,
+		  (int (*)(const void *, const void *)) strcmp);
+}
+
+/* "/"         -> [""]
+   "/foo"      -> ["foo"]
+   "/foo/"     -> ["foo", ""]
+   "/foo/bar"  -> ["foo", "bar"] 
+   "/foo/bar/" -> ["foo", "bar", ""] */
+struct base_path *
+base_parse_path_str(struct pool *pool, char *str)
+{
+	// Cheesy!
+	struct base_path *top = NULL, *path = NULL, *prev = NULL;
+	size_t len = strlen(str), i = 0, comp_len;
+	char *comp, *end;
+	while(i < len) {
+		prev = path;
+		if (!(path = pool_calloc(pool, sizeof(struct base_path))))
+			return NULL;
+		if (!top) top = path;
+		if (prev) prev->next = path;
+		i++;
+		comp = str + i;
+		end = strchr(comp, '/');
+		if (!end) 
+			comp_len = len - i;
+		else 
+			comp_len = end - path->comp;
+		path->comp = pool_strndup(pool, comp, comp_len);
+		i += comp_len;
+	}
+	return top;
 }

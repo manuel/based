@@ -17,7 +17,7 @@ robust file format, tolerant log redo
 
 replication
 
-Unicode support for IDs?
-URL-decoding issues
-
 Use a pool for non-sendfile GETs?
+
+Investigate alignment issues of the log file format for non-x86
+processors.

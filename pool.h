@@ -7,14 +7,15 @@
    and a list of older pages.  When the pool is reset, all pages but
    one are freed.
 
-   Data is aligned on an 8-byte boundary, like standard malloc.  Pages
-   have a default size, but if an allocation request exceeds that
-   size, the pool will allocate a larger page. */
+   Data is aligned on an 8-byte boundary.  Pages have a default size,
+   but if an allocation request exceeds that size, the pool will
+   allocate a larger page. */
 
 #ifndef POOL_H
 #define POOL_H
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "list.h"
 
@@ -33,7 +34,13 @@ void
 pool_init(struct pool *, size_t default_page_size);
 
 void *
-palloc(struct pool *, size_t);
+pool_malloc(struct pool *, size_t);
+
+void *
+pool_calloc(struct pool *, size_t);
+
+char *
+pool_strndup(struct pool *, const char *, size_t);
 
 void
 pool_reset(struct pool *);

@@ -486,17 +486,17 @@ base_dir_ensure_sub_dir(struct base_dir *parent, char *name, size_t name_len)
 	struct base_dir *dir;
 	if (dir = base_dir_sub_dir(parent, name)) return dir;
 	char *combined_buf, *name_copy;
-	size_t combined_buf_len = 
-		sizeof(struct base_dir) + 
-		sizeof(dnode_t) +
-		name_len + 1;
+	size_t combined_buf_len = sizeof(struct base_dir) + name_len + 1;
 	if (!(combined_buf = malloc(combined_buf_len))) return NULL;
-	name_copy = combined_buf + sizeof(struct base_dir) + 
-		sizeof(dnode_t);
+	name_copy = combined_buf + sizeof(struct base_dir);
 	memcpy(name_copy, name, name_len + 1);
 	dir = (struct base_dir *) combined_buf;
 	base_dir_init(dir, parent, name_copy);
-	dnode_t *dnode = (dnode_t *) combined_buf + sizeof(struct base_dir);
+	dnode_t *dnode = malloc(sizeof(dnode_t));
+	if (!dnode) {
+		free(combined_buf);
+		return NULL;
+	}
 	dnode_init(dnode, dir);
 	dict_insert(&parent->sub_dirs, dnode, name_copy);
 	return dir;
@@ -537,9 +537,9 @@ base_kill_index_entry(struct base_dir *dir, char *name)
 	dnode_t *dnode = dict_lookup(&dir->children, name);
 	if (dnode) {
 		dict_delete(&dir->children, dnode);
-		char *buf = dnode_get(dnode);
-		free(buf); // gets rid of extent and key
-		free(dnode); // todo: put dnode into combined buf, too
+		char *combined_buf = dnode_get(dnode);
+		free(buf);
+		free(dnode);
 	}
 	return base_kill_dir_if_empty(dir);
 }
@@ -554,8 +554,9 @@ base_kill_dir_if_empty(struct base_dir *dir)
 		dnode_t *dnode = dict_lookup(&parent->sub_dirs, dir->name);
 		if (dnode) {
 			dict_delete(&parent->sub_dirs, dnode);
-			char *buf = dnode_get(dnode);
-			free(buf); // there goes the directory
+			char *combined_buf = dnode_get(dnode);
+			free(combined_buf);
+			free(dnode);
 		} else {
 			// something is horribly wrong
 		}

@@ -215,14 +215,16 @@ base_peer_http_callback(struct evhttp_request *req, void *arg)
 	switch (req->type) {
 	case EVHTTP_REQ_GET:
 		res = base_peer_get(peer, req);
+		break;
 	case EVHTTP_REQ_PUT:
 	case EVHTTP_REQ_POST:
 	case EVHTTP_REQ_DELETE:
 		res = base_peer_put(peer, req);
+		break;
 	}
 	pool_reset(&peer->pool);
 
-	if (res == -1) evhttp_send_error(req, 503, "Error");
+	if (res == -1) evhttp_send_error(req, 503, "error");
 }
 
 int
@@ -308,6 +310,7 @@ base_peer_get_dir(struct base_peer *peer,
 	evhttp_add_header(req->output_headers, "Content-type", 
 			  "text/plain; charset=utf-8");
 	evhttp_send_reply(req, HTTP_OK, "OK", NULL);
+	return 0;
 }
 
 struct base_extent *

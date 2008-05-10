@@ -499,6 +499,7 @@ base_dir_ensure_sub_dir(struct base_dir *parent, char *name, size_t name_len)
 	dnode_t *dnode = (dnode_t *) combined_buf + sizeof(struct base_dir);
 	dnode_init(dnode, dir);
 	dict_insert(&parent->sub_dirs, dnode, name_copy);
+	return dir;
 }
 
 int

@@ -34,13 +34,18 @@ base_pread_all(int, void *, size_t, off_t);
 int
 base_writev_all(int, struct iovec *, int);
 void
-base_dir_init(struct base_dir *);
+base_dir_init(struct base_dir *, struct base_dir *parent);
 struct base_dir *
 base_dir_sub_dir(struct base_dir *, char *);
 struct base_extent *
 base_dir_child(struct base_dir *, char *);
 struct base_path *
 base_parse_path_str(struct pool *, char *);
+int
+base_dir_set_child(struct base_dir *, struct base_entry *,
+		   char *comp, size_t comp_len, off_t);
+struct base_dir *
+base_dir_ensure_sub_dir(struct base_dir *, char *comp, size_t comp_len);
 
 int
 main(int argc, char **argv)
@@ -115,7 +120,7 @@ base_peer_init(struct base_peer *peer)
 				 S_IRUSR | S_IWUSR)) == -1)
 		err(EXIT_FAILURE, "Cannot open log file");
 
-	base_dir_init(&peer->root);
+	base_dir_init(&peer->root, &peer->root);
 	
 	pool_init(&peer->pool, POOL_DEFAULT_PAGE_SIZE);
 
@@ -219,7 +224,7 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 		}
 	}
 
-	return -1; // never reached
+	return -1; // not reached, Murphy-willing
 }
 
 int
@@ -286,15 +291,12 @@ base_peer_send_content(struct base_peer *peer,
 {
 	char *content;
 	size_t content_len = extent->len - extent->head_len;
-	if (!(content = malloc(content_len)))
+	if (!(content = pool_malloc(&peer->pool, content_len)))
 		return -1;
 	if (base_pread_all(peer->log_fd, content, content_len,
-			   extent->off + extent->head_len) == -1) {
-		free(content);
+			   extent->off + extent->head_len) == -1)
 		return -1;
-	}
 	evbuffer_add(req->output_buffer, content, content_len);
-	free(content);
 	return 0;
 }
 
@@ -377,18 +379,41 @@ base_peer_index_entry(struct base_peer *peer,
 	}
 
 	struct base_path *path;
-	struct base_dir *dir = &peer->root;
-	if (!(path = base_parse_path(&peer->pool, id)))
+	if (!(path = base_parse_path_str(&peer->pool, id)))
 		return -1;
-	
-	do {
-		if (strlen(path->comp) > 0) {
-			if (path->next != NULL) {
-				dir = base_dir_ensure_sub_dir(dir, path->comp);
-				path = path->next;
+
+	if (!delete)
+		return base_peer_add_index_entry(peer, entry, path, off);
+	else
+		return base_peer_remove_index_entry(peer, entry, path);
+
+}	
+
+int
+base_peer_add_index_entry(struct base_peer *peer, struct base_entry *entry,
+			  struct base_path *path, off_t off)
+{
+	struct base_dir *dir = &peer->root;
+	size_t comp_len;
+	for(;;) {
+		comp_len = strlen(path->comp);
+		if (comp_len > 0) {
+			if (path->next == NULL) {
+				// End of path, create or update child.
+				return base_dir_set_child(dir, 
+							  entry,
+							  path->comp, 
+							  comp_len,
+							  off);
 			} else {
-				return base_peer_get_entry(peer, req, dir, 
-							   path->comp);
+				// There are further path components,
+				// ensure that neccessary
+				// sub-directory exists and enter it.
+				dir = base_dir_ensure_sub_dir(dir, path->comp,
+							      comp_len);
+				if (!dir) return -1;
+				path = path->next;
+				continue;
 			}
 		} else {
 			// The path addresses a directory.  This
@@ -396,29 +421,28 @@ base_peer_index_entry(struct base_peer *peer,
 			// earlier
 			return -1;
 		}
-	} while(path);
+	}
+	return -1; // not reached
+}
 
+// Create or update the extent data of an entry in a directory.
+int
+base_dir_set_child(struct base_dir *dir, struct base_entry *entry,
+		   char *comp, size_t comp_len, off_t off)
+{
 	struct base_extent *extent;
 	dnode_t *dnode;
-	if (dnode = dict_lookup(&peer->index, id)) {
+	if (dnode = dict_lookup(&dir->children, comp)) {
 		extent = dnode_get(dnode);
-		if (delete) {
-			dict_delete(&peer->index, dnode);
-			free(dnode);
-			free(extent);
-		} else {
-			extent->off = off;
-			extent->len = entry->len;
-			extent->head_len = entry->head_len;
-		}
+		extent->off = off;
+		extent->len = entry->len;
+		extent->head_len = entry->head_len;
 		return 0;
 	} else {
-		if (delete) return 0;
-		if (dict_isfull(&peer->index)) return -1;
-		size_t id_len = id_header->len;
-		char *combined_buf, *id_copy;
+		if (dict_isfull(&dir->children)) return -1;
+		char *combined_buf, *comp_copy;
 		size_t combined_buf_len =
-			sizeof(struct base_extent) + id_len;
+			sizeof(struct base_extent) + comp_len + 1;
 		if (!(combined_buf = malloc(combined_buf_len)))
 			return -1;
 		memset(combined_buf, 0, combined_buf_len);
@@ -426,15 +450,86 @@ base_peer_index_entry(struct base_peer *peer,
 		extent->off = off;
 		extent->len = entry->len;
 		extent->head_len = entry->head_len;
-		id_copy = combined_buf + sizeof(struct base_extent);
-		memcpy(id_copy, id, id_len);
-		if (dict_alloc_insert(&peer->index, id_copy, extent)) {
+		comp_copy = combined_buf + sizeof(struct base_extent);
+		memcpy(comp_copy, comp, comp_len + 1);
+		if (dict_alloc_insert(&dir->children, comp_copy, extent)) {
 			return 0;
 		} else {
 			free(combined_buf);
 			return -1;
 		}
 	}
+}
+
+struct base_dir *
+base_dir_ensure_sub_dir(struct base_dir *parent, char *comp, size_t comp_len)
+{
+	struct base_dir *dir;
+	if (dir = base_dir_sub_dir(parent, comp)) return dir;
+	char *combined_buf, *comp_copy;
+	size_t combined_buf_len = 
+		sizeof(struct base_dir) + 
+		sizeof(dnode_t) +
+		comp_len + 1;
+	if (!(combined_buf = malloc(combined_buf_len))) return NULL;
+	dir = (struct base_dir *) combined_buf;
+	base_dir_init(dir, parent);
+	comp_copy = combined_buf + sizeof(struct base_dir);
+	memcpy(comp_copy, comp, comp_len + 1);
+	dnode_t *dnode = (dnode_t *) comp_copy + comp_len + 1;
+	dnode_init(dnode, dir);
+	dict_insert(&parent->sub_dirs, dnode, comp_copy);
+}
+
+int
+base_peer_remove_index_entry(struct base_peer *peer, struct base_entry *entry,
+			     struct base_path *path)
+{
+	struct base_dir *dir = &peer->root;
+	for(;;) {
+		if (strlen(path->comp) > 0) {
+			if (path->next == NULL) {
+				// End of path, delete entry and
+				// possibly directories above.
+				return base_peer_kill_index_entry(peer, 
+								  dir,
+								  path->comp);
+			} else {
+				// There are further components.  If a
+				// corresponding directory exists,
+				// enter it, otherwise, we're done.
+				// (Can this happen? A delete of a
+				// non-existent/non-indexed entry?)
+				dir = base_dir_sub_dir(dir, path->comp);
+				if (!dir) return 0;
+				else continue;
+			}
+		} else {
+			// Path addresses a directory, makes no sense.
+			// Detect earlier.
+			return -1;
+		}
+	}
+}
+
+int
+base_peer_kill_index_entry(struct base_peer *peer,
+			   struct base_dir *dir,
+			   char *comp)
+{
+	dnode_t *dnode = dict_lookup(&dir->children, comp);
+	if (!dnode) return 0; // also delete parents?
+	dict_delete(&dir->children, dnode);
+	char *buf = dnode_get(dnode);
+	free(buf); // gets rid of extent and key
+	free(dnode);
+	return base_peer_kill_dir_if_empty(peer, dir);
+}
+
+int
+base_peer_kill_dir_if_empty(struct base_peer *peer, struct base_dir *dir)
+{
+	
 }
 
 /* Fill the headers dictionary with headers that should be written to
@@ -616,12 +711,13 @@ base_writev_all(int fd, struct iovec *vec, int count)
 }
 
 void
-base_dir_init(struct base_dir *dir)
+base_dir_init(struct base_dir *dir, struct base_dir *parent)
 {
 	dict_init(&dir->children, DICTCOUNT_T_MAX,
 		  (int (*)(const void *, const void *)) strcmp);
 	dict_init(&dir->sub_dirs, DICTCOUNT_T_MAX,
 		  (int (*)(const void *, const void *)) strcmp);
+	dir->parent = parent;
 }
 
 /* "/"         -> [""]
@@ -632,14 +728,14 @@ base_dir_init(struct base_dir *dir)
 struct base_path *
 base_parse_path_str(struct pool *pool, char *str)
 {
-	struct base_path *top = NULL, *path = NULL, *prev = NULL;
+	struct base_path *first = NULL, *path = NULL, *prev = NULL;
 	size_t len = strlen(str), i = 0, comp_len;
 	char *comp, *end;
 	while(i < len) {
 		prev = path;
 		if (!(path = pool_calloc(pool, sizeof(struct base_path))))
 			return NULL;
-		if (!top) top = path;
+		if (!first) first = path;
 		if (prev) prev->next = path;
 		i++;
 		comp = str + i;
@@ -647,9 +743,9 @@ base_parse_path_str(struct pool *pool, char *str)
 		if (!end) 
 			comp_len = len - i;
 		else 
-			comp_len = end - path->comp;
+			comp_len = end - comp;
 		path->comp = pool_strndup(pool, comp, comp_len);
 		i += comp_len;
 	}
-	return top;
+	return first;
 }

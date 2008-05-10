@@ -21,3 +21,5 @@ Use a pool for non-sendfile GETs?
 
 Investigate alignment issues of the log file format for non-x86
 processors.
+
+Limit path components' lengths to something sensible.

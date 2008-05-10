@@ -305,6 +305,8 @@ base_peer_get_dir(struct base_peer *peer,
 {
 	dict_process(&dir->sub_dirs, req, base_dir_listing_sub_dir);
 	dict_process(&dir->children, req, base_dir_listing_child);
+	evhttp_add_header(req->output_headers, "Content-type", 
+			  "text/plain; charset=utf-8");
 	evhttp_send_reply(req, HTTP_OK, "OK", NULL);
 }
 
@@ -617,11 +619,12 @@ base_peer_populate_in_headers(struct base_peer* peer,
 			      dict_t *headers)
 {
 	// ID header, reference ID from request URL.
-	char *id = req->uri;
-	size_t id_len = strlen(id);
+	char *id;
+	size_t id_len;
 	uint16_t header_len;
-	if (!id) 
+	if (!(id = evhttp_decode_uri(req->uri)))
 		return -1;
+	id_len = strlen(id);
 	if ((id_len + 1) > BASE_HEADER_LEN_MAX)
 		return -1;
 	header_len = id_len + 1;

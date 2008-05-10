@@ -19,7 +19,7 @@
 #include "pool.h"
 
 #define BASE_NAME "based"
-#define BASE_VERSION "0.0.4 alpha"
+#define BASE_VERSION "0.0.5 alpha"
 
 #define BASE_DEFAULT_LOG_FILE "./log"
 #define BASE_DEFAULT_HTTP_ADDR "127.0.0.1"

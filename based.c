@@ -34,16 +34,16 @@ base_pread_all(int, void *, size_t, off_t);
 int
 base_writev_all(int, struct iovec *, int);
 void
-base_dir_init(struct base_dir *, struct base_dir *parent, char *comp);
+base_dir_init(struct base_dir *, struct base_dir *parent, char *name);
 struct base_extent *
-base_dir_child(struct base_dir *, char *);
+base_dir_child(struct base_dir *, char *name);
 struct base_dir *
-base_dir_sub_dir(struct base_dir *, char *);
+base_dir_sub_dir(struct base_dir *, char *name);
 int
 base_dir_set_child(struct base_dir *, struct base_entry *,
-		   char *comp, size_t comp_len, off_t);
+		   char *name, size_t name_len, off_t);
 struct base_dir *
-base_dir_ensure_sub_dir(struct base_dir *, char *comp, size_t comp_len);
+base_dir_ensure_sub_dir(struct base_dir *, char *name, size_t name_len);
 struct base_path *
 base_parse_path_str(struct pool *, char *);
 
@@ -194,7 +194,7 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 	struct base_path *path;
 	struct base_dir *dir = &peer->root;
 
-	if (!(uri = evhttp_decode_uri(req->uri))) 
+	if (!(uri = evhttp_decode_uri(req->uri)))
 		return -1;
 
 	path = base_parse_path_str(&peer->pool, uri);
@@ -403,7 +403,6 @@ base_peer_index_entry(struct base_peer *peer,
 		return base_peer_add_index_entry(peer, entry, path, off);
 	else
 		return base_peer_remove_index_entry(peer, entry, path);
-
 }
 
 int

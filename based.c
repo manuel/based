@@ -179,7 +179,9 @@ base_peer_http_callback(struct evhttp_request *req, void *arg)
 	switch (req->type) {
 	case EVHTTP_REQ_GET:
 		res = base_peer_get(peer, req);
+	case EVHTTP_REQ_PUT:
 	case EVHTTP_REQ_POST:
+	case EVHTTP_REQ_DELETE:
 		res = base_peer_put(peer, req);
 	}
 	pool_reset(&peer->pool);
@@ -590,19 +592,24 @@ base_peer_populate_in_headers(struct base_peer* peer,
 	if (base_add_in_header(peer, headers,
 			       BASE_H_ID, header_len, id) == -1)
 		return -1;
-
-	// If the method is DELETE set the entry type to delete.
-	const char *override;
-	if ((override = evhttp_find_header(req->input_headers,
-					   BASE_HTTP_OVERRIDE))
-	    && (strcasecmp(override, BASE_HTTP_DELETE) == 0)) {
-		if (base_add_in_header(peer, headers,
-				       BASE_H_ENTRY_TYPE, 1,
+	
+	if (base_req_is_delete(req)) {
+		if (base_add_in_header(peer, headers, BASE_H_ENTRY_TYPE, 1,
 				       (char *) &BASE_ENTRY_TYPE_DELETE) == -1)
 			return -1;
 	}
 	
 	return 0;
+}
+
+int
+base_req_is_delete(struct evhttp_request *req)
+{
+	const char *override;
+	if (req->type == EVHTTP_REQ_DELETE) 
+		return 1;
+	override = evhttp_find_header(req->input_headers, BASE_HTTP_OVERRIDE);
+	return strcasecmp(override, BASE_HTTP_DELETE) == 0;
 }
 
 /* Add a header to an incoming entry.  Memory (e.g. for the value)

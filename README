@@ -1,4 +1,4 @@
-Requires a recent (~ 1.4) libevent.  Tested on Debian stable.
+Requires libevent2 from SVN.  Tested on Debian stable/x86.
 
 The quick rundown:
 
@@ -10,8 +10,12 @@ In another shell:
 curl -d "hello world" localhost:8080/hello-world
 w3m http://localhost:8080/hello-world
 
-You can POST files to arbitrary paths on the server,
-e.g. /docs/john_doe/hello-world, and GET them back later.
+You can PUT/POST files to arbitrary paths on the server,
+e.g. /docs/john_doe/hello-world, and GET them back later, or DELETE
+them.  GETting directories is also supported and returns a directory
+listing (GET /foo/ <-- note trailing slash).  If your HTTP client
+doesn't support the DELETE method you can fake it with a
+"X-HTTP-Method-Override: DELETE" header.
 
 The internal data structures consist of an append-only log, and a RAM
 index which maps document IDs to offset/length pairs (struct

@@ -1,4 +1,4 @@
-CCFLAGS=-g -O0 -Wall
+CCFLAGS=-O3
 LDFLAGS=-levent
 
 based: dict.o list.o pool.o based.o

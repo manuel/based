@@ -3,7 +3,10 @@
 
 #include <err.h>
 #include <errno.h>
-#include <evhttp.h>
+#include <event2/event.h>
+#include <event2/buffer.h>
+#include <event2/http.h>
+#include <event2/http_struct.h>
 #include <fcntl.h>
 #include <netinet/ip.h>
 #include <stdint.h>
@@ -34,11 +37,6 @@ struct base_dir {
 	dict_t sub_dirs; // name -> dir
 	struct base_dir *parent;
 	char *name;
-};
-
-struct base_path {
-	char *name;
-	struct base_path *next;
 };
 
 struct base_peer {
@@ -103,15 +101,17 @@ struct base_header {
 #define BASE_H_ENTRY_TYPE 2
 const uint8_t BASE_ENTRY_TYPE_DELETE = 1;
 
-/* Currently, libevent is limited to receiving GET and POST requests,
-   so one has to send an X-Override header with the value DELETE in a
-   POST request to delete an entry. */
-#define BASE_HTTP_OVERRIDE "X-Override"
+#define BASE_HTTP_OVERRIDE "X-HTTP-Method-Override"
 #define BASE_HTTP_DELETE "DELETE"
 
 struct base_extent {
 	off_t off;
 	uint64_t len:48, head_len:16;
+};
+
+struct base_path {
+	char *name;
+	struct base_path *next;
 };
 
 #endif

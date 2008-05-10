@@ -1,5 +1,6 @@
 #include "based.h"
 
+/* Initialization */
 void
 base_peer_usage();
 void
@@ -8,14 +9,31 @@ void
 base_peer_init(struct base_peer *);
 void
 base_peer_redo_log(struct base_peer *);
+
+/* HTTP handling */
 void
 base_peer_http_callback(struct evhttp_request *, void *peer);
+
+/* Egress data path */
 int
 base_peer_get(struct base_peer *, struct evhttp_request *);
 int
-base_peer_put(struct base_peer *, struct evhttp_request *);
+base_peer_get_entry(struct base_peer *peer, 
+		    struct evhttp_request *req,
+		    struct base_dir *dir,
+		    char *name);
 int
-base_peer_index_entry(struct base_peer *, struct base_entry *, off_t);
+base_peer_send_content(struct base_peer *peer,
+		       struct evhttp_request *req,
+		       struct base_extent *extent);
+int
+base_peer_get_dir(struct base_peer *peer, 
+		  struct evhttp_request *req,
+		  struct base_dir *dir);
+
+/* Ingress data path */
+int
+base_peer_put(struct base_peer *, struct evhttp_request *);
 int
 base_peer_populate_in_headers(struct base_peer*, struct evhttp_request *, 
 			      dict_t *headers);
@@ -25,6 +43,33 @@ base_add_in_header(struct base_peer *, dict_t *headers,
 ssize_t
 base_peer_marshall_entry_head(struct base_peer *, struct base_entry **,
 			      dict_t *headers, size_t content_len);
+
+/* Index maintenance */
+int
+base_peer_index_entry(struct base_peer *, struct base_entry *, off_t);
+int
+base_peer_add_index_entry(struct base_peer *peer, struct base_entry *entry,
+			  struct base_path *path, off_t off);
+int
+base_peer_remove_index_entry(struct base_peer *peer, struct base_entry *entry,
+			     struct base_path *path);
+void
+base_dir_init(struct base_dir *, struct base_dir *parent, char *name);
+struct base_extent *
+base_dir_child(struct base_dir *, char *name);
+int
+base_dir_set_child(struct base_dir *, struct base_entry *,
+		   char *name, size_t name_len, off_t);
+struct base_dir *
+base_dir_sub_dir(struct base_dir *, char *name);
+struct base_dir *
+base_dir_ensure_sub_dir(struct base_dir *, char *name, size_t name_len);
+int
+base_kill_index_entry(struct base_dir *dir, char *name);
+int
+base_kill_dir_if_empty(struct base_dir *dir);
+
+/* Utilities */
 struct base_header *
 base_entry_get_header(struct base_entry *, uint16_t type);
 char *
@@ -33,19 +78,10 @@ int
 base_pread_all(int, void *, size_t, off_t);
 int
 base_writev_all(int, struct iovec *, int);
-void
-base_dir_init(struct base_dir *, struct base_dir *parent, char *name);
-struct base_extent *
-base_dir_child(struct base_dir *, char *name);
-struct base_dir *
-base_dir_sub_dir(struct base_dir *, char *name);
-int
-base_dir_set_child(struct base_dir *, struct base_entry *,
-		   char *name, size_t name_len, off_t);
-struct base_dir *
-base_dir_ensure_sub_dir(struct base_dir *, char *name, size_t name_len);
 struct base_path *
 base_parse_path_str(struct pool *, char *);
+
+
 
 int
 main(int argc, char **argv)

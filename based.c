@@ -34,7 +34,7 @@ base_pread_all(int, void *, size_t, off_t);
 int
 base_writev_all(int, struct iovec *, int);
 void
-base_dir_init(struct base_dir *, struct base_dir *parent);
+base_dir_init(struct base_dir *, struct base_dir *parent, char *comp);
 struct base_dir *
 base_dir_sub_dir(struct base_dir *, char *);
 struct base_extent *
@@ -120,7 +120,7 @@ base_peer_init(struct base_peer *peer)
 				 S_IRUSR | S_IWUSR)) == -1)
 		err(EXIT_FAILURE, "Cannot open log file");
 
-	base_dir_init(&peer->root, &peer->root);
+	base_dir_init(&peer->root, &peer->root, "");
 	
 	pool_init(&peer->pool, POOL_DEFAULT_PAGE_SIZE);
 
@@ -472,11 +472,12 @@ base_dir_ensure_sub_dir(struct base_dir *parent, char *comp, size_t comp_len)
 		sizeof(dnode_t) +
 		comp_len + 1;
 	if (!(combined_buf = malloc(combined_buf_len))) return NULL;
-	dir = (struct base_dir *) combined_buf;
-	base_dir_init(dir, parent);
-	comp_copy = combined_buf + sizeof(struct base_dir);
+	comp_copy = combined_buf + sizeof(struct base_dir) + 
+		sizeof(dnode_t);
 	memcpy(comp_copy, comp, comp_len + 1);
-	dnode_t *dnode = (dnode_t *) comp_copy + comp_len + 1;
+	dir = (struct base_dir *) combined_buf;
+	base_dir_init(dir, parent, comp_copy);
+	dnode_t *dnode = (dnode_t *) combined_buf + sizeof(struct base_dir);
 	dnode_init(dnode, dir);
 	dict_insert(&parent->sub_dirs, dnode, comp_copy);
 }
@@ -491,9 +492,8 @@ base_peer_remove_index_entry(struct base_peer *peer, struct base_entry *entry,
 			if (path->next == NULL) {
 				// End of path, delete entry and
 				// possibly directories above.
-				return base_peer_kill_index_entry(peer, 
-								  dir,
-								  path->comp);
+				return base_kill_index_entry(dir,
+							     path->comp);
 			} else {
 				// There are further components.  If a
 				// corresponding directory exists,
@@ -513,23 +513,38 @@ base_peer_remove_index_entry(struct base_peer *peer, struct base_entry *entry,
 }
 
 int
-base_peer_kill_index_entry(struct base_peer *peer,
-			   struct base_dir *dir,
-			   char *comp)
+base_kill_index_entry(struct base_dir *dir, char *comp)
 {
 	dnode_t *dnode = dict_lookup(&dir->children, comp);
 	if (!dnode) return 0; // also delete parents?
 	dict_delete(&dir->children, dnode);
 	char *buf = dnode_get(dnode);
 	free(buf); // gets rid of extent and key
-	free(dnode);
-	return base_peer_kill_dir_if_empty(peer, dir);
+	free(dnode); // todo: put dnode into combined buf, too
+	return base_kill_dir_if_empty(dir);
 }
 
 int
-base_peer_kill_dir_if_empty(struct base_peer *peer, struct base_dir *dir)
+base_kill_dir_if_empty(struct base_dir *dir)
 {
-	
+	struct base_dir *parent = dir->parent;
+	if (!parent || parent == dir) return 0; // don't delete root
+	if ((!dict_count(&dir->children))
+	    && (!dict_count(&dir->sub_dirs))) {
+		char *comp = dir->comp;
+		dnode_t *dnode = dict_lookup(&parent->sub_dirs, 
+					     dir->comp);
+		if (dnode) {
+			dict_delete(&parent->sub_dirs, dnode);
+			char *buf = dnode_get(dnode);
+			free(buf); // there goes the directory
+		} else {
+			// something is horribly wrong
+		}
+		return base_kill_dir_if_empty(parent);
+	} else {
+		return 0;
+	}
 }
 
 /* Fill the headers dictionary with headers that should be written to

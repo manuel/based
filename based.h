@@ -33,6 +33,7 @@ struct base_dir {
 	dict_t children; // name -> extent
 	dict_t sub_dirs; // name -> dir
 	struct base_dir *parent;
+	char *comp;
 };
 
 struct base_peer {

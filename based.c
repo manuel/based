@@ -35,17 +35,17 @@ int
 base_writev_all(int, struct iovec *, int);
 void
 base_dir_init(struct base_dir *, struct base_dir *parent, char *comp);
-struct base_dir *
-base_dir_sub_dir(struct base_dir *, char *);
 struct base_extent *
 base_dir_child(struct base_dir *, char *);
-struct base_path *
-base_parse_path_str(struct pool *, char *);
+struct base_dir *
+base_dir_sub_dir(struct base_dir *, char *);
 int
 base_dir_set_child(struct base_dir *, struct base_entry *,
 		   char *comp, size_t comp_len, off_t);
 struct base_dir *
 base_dir_ensure_sub_dir(struct base_dir *, char *comp, size_t comp_len);
+struct base_path *
+base_parse_path_str(struct pool *, char *);
 
 int
 main(int argc, char **argv)
@@ -202,16 +202,17 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 	if (!path) return -1;
 	
 	for(;;) {
-		if (strlen(path->comp) > 0) {
+		if (strlen(path->name) > 0) {
 			if (path->next == NULL) {
 				// End of path, return entry.
 				return base_peer_get_entry(peer, req, dir,
-							   path->comp);
+							   path->name);
 			} else {
 				// There are further components in
-				// path, enter sub-directory and
-				// continue.
-				dir = base_dir_sub_dir(dir, path->comp);
+				// path, try to enter sub-directory
+				// and continue.
+				if (!(dir = base_dir_sub_dir(dir, path->name)))
+					return -1;
 				path = path->next;
 				continue;
 			}
@@ -245,12 +246,28 @@ base_peer_get_entry(struct base_peer *peer,
 	}
 }
 
+void
+base_dir_listing_sub_dir(dict_t *ign, dnode_t *dnode, void *arg)
+{
+	struct evhttp_request *req = arg;
+	evbuffer_add_printf(req->output_buffer, "%s/\n", dnode_getkey(dnode));
+}
+
+void
+base_dir_listing_child(dict_t *ign, dnode_t *dnode, void *arg)
+{
+	struct evhttp_request *req = arg;
+	evbuffer_add_printf(req->output_buffer, "%s\n", dnode_getkey(dnode));
+}
+
 int
 base_peer_get_dir(struct base_peer *peer, 
 		  struct evhttp_request *req,
 		  struct base_dir *dir)
 {
-	return -1;
+	dict_process(&dir->sub_dirs, req, base_dir_listing_sub_dir);
+	dict_process(&dir->children, req, base_dir_listing_child);
+	evhttp_send_reply(req, HTTP_OK, "OK", NULL);
 }
 
 struct base_extent *
@@ -387,52 +404,54 @@ base_peer_index_entry(struct base_peer *peer,
 	else
 		return base_peer_remove_index_entry(peer, entry, path);
 
-}	
+}
 
 int
 base_peer_add_index_entry(struct base_peer *peer, struct base_entry *entry,
 			  struct base_path *path, off_t off)
 {
 	struct base_dir *dir = &peer->root;
-	size_t comp_len;
+	size_t name_len;
 	for(;;) {
-		comp_len = strlen(path->comp);
-		if (comp_len > 0) {
+		name_len = strlen(path->name);
+		if (name_len > 0) {
 			if (path->next == NULL) {
 				// End of path, create or update child.
 				return base_dir_set_child(dir, 
 							  entry,
-							  path->comp, 
-							  comp_len,
+							  path->name, 
+							  name_len,
 							  off);
 			} else {
-				// There are further path components,
-				// ensure that neccessary
+				// There are further path components
+				// -- ensure that the neccessary
 				// sub-directory exists and enter it.
-				dir = base_dir_ensure_sub_dir(dir, path->comp,
-							      comp_len);
-				if (!dir) return -1;
+				if (!(dir = base_dir_ensure_sub_dir(dir, 
+								    path->name,
+								    name_len)))
+					return -1;
 				path = path->next;
 				continue;
 			}
 		} else {
 			// The path addresses a directory.  This
 			// shouldn't really happen.  Todo: Detect this
-			// earlier
+			// earlier.
 			return -1;
 		}
 	}
+	
 	return -1; // not reached
 }
 
-// Create or update the extent data of an entry in a directory.
+/* Create or update the extent data of an entry in a directory. */
 int
 base_dir_set_child(struct base_dir *dir, struct base_entry *entry,
-		   char *comp, size_t comp_len, off_t off)
+		   char *name, size_t name_len, off_t off)
 {
 	struct base_extent *extent;
 	dnode_t *dnode;
-	if (dnode = dict_lookup(&dir->children, comp)) {
+	if (dnode = dict_lookup(&dir->children, name)) {
 		extent = dnode_get(dnode);
 		extent->off = off;
 		extent->len = entry->len;
@@ -440,9 +459,9 @@ base_dir_set_child(struct base_dir *dir, struct base_entry *entry,
 		return 0;
 	} else {
 		if (dict_isfull(&dir->children)) return -1;
-		char *combined_buf, *comp_copy;
+		char *combined_buf, *name_copy;
 		size_t combined_buf_len =
-			sizeof(struct base_extent) + comp_len + 1;
+			sizeof(struct base_extent) + name_len + 1;
 		if (!(combined_buf = malloc(combined_buf_len)))
 			return -1;
 		memset(combined_buf, 0, combined_buf_len);
@@ -450,9 +469,10 @@ base_dir_set_child(struct base_dir *dir, struct base_entry *entry,
 		extent->off = off;
 		extent->len = entry->len;
 		extent->head_len = entry->head_len;
-		comp_copy = combined_buf + sizeof(struct base_extent);
-		memcpy(comp_copy, comp, comp_len + 1);
-		if (dict_alloc_insert(&dir->children, comp_copy, extent)) {
+		name_copy = combined_buf + sizeof(struct base_extent);
+		memcpy(name_copy, name, name_len + 1);
+		// Todo: Put dnode into combined buffer.
+		if (dict_alloc_insert(&dir->children, name_copy, extent)) {
 			return 0;
 		} else {
 			free(combined_buf);
@@ -462,24 +482,24 @@ base_dir_set_child(struct base_dir *dir, struct base_entry *entry,
 }
 
 struct base_dir *
-base_dir_ensure_sub_dir(struct base_dir *parent, char *comp, size_t comp_len)
+base_dir_ensure_sub_dir(struct base_dir *parent, char *name, size_t name_len)
 {
 	struct base_dir *dir;
-	if (dir = base_dir_sub_dir(parent, comp)) return dir;
-	char *combined_buf, *comp_copy;
+	if (dir = base_dir_sub_dir(parent, name)) return dir;
+	char *combined_buf, *name_copy;
 	size_t combined_buf_len = 
 		sizeof(struct base_dir) + 
 		sizeof(dnode_t) +
-		comp_len + 1;
+		name_len + 1;
 	if (!(combined_buf = malloc(combined_buf_len))) return NULL;
-	comp_copy = combined_buf + sizeof(struct base_dir) + 
+	name_copy = combined_buf + sizeof(struct base_dir) + 
 		sizeof(dnode_t);
-	memcpy(comp_copy, comp, comp_len + 1);
+	memcpy(name_copy, name, name_len + 1);
 	dir = (struct base_dir *) combined_buf;
-	base_dir_init(dir, parent, comp_copy);
+	base_dir_init(dir, parent, name_copy);
 	dnode_t *dnode = (dnode_t *) combined_buf + sizeof(struct base_dir);
 	dnode_init(dnode, dir);
-	dict_insert(&parent->sub_dirs, dnode, comp_copy);
+	dict_insert(&parent->sub_dirs, dnode, name_copy);
 }
 
 int
@@ -488,39 +508,39 @@ base_peer_remove_index_entry(struct base_peer *peer, struct base_entry *entry,
 {
 	struct base_dir *dir = &peer->root;
 	for(;;) {
-		if (strlen(path->comp) > 0) {
+		if (strlen(path->name) > 0) {
 			if (path->next == NULL) {
 				// End of path, delete entry and
 				// possibly directories above.
 				return base_kill_index_entry(dir,
-							     path->comp);
+							     path->name);
 			} else {
 				// There are further components.  If a
 				// corresponding directory exists,
 				// enter it, otherwise, we're done.
-				// (Can this happen? A delete of a
-				// non-existent/non-indexed entry?)
-				dir = base_dir_sub_dir(dir, path->comp);
-				if (!dir) return 0;
-				else continue;
+				if (!(dir = base_dir_sub_dir(dir, path->name)))
+					return 0;
+				path = path->next;
+				continue;
 			}
 		} else {
 			// Path addresses a directory, makes no sense.
-			// Detect earlier.
+			// Todo: Detect earlier.
 			return -1;
 		}
 	}
 }
 
 int
-base_kill_index_entry(struct base_dir *dir, char *comp)
+base_kill_index_entry(struct base_dir *dir, char *name)
 {
-	dnode_t *dnode = dict_lookup(&dir->children, comp);
-	if (!dnode) return 0; // also delete parents?
-	dict_delete(&dir->children, dnode);
-	char *buf = dnode_get(dnode);
-	free(buf); // gets rid of extent and key
-	free(dnode); // todo: put dnode into combined buf, too
+	dnode_t *dnode = dict_lookup(&dir->children, name);
+	if (dnode) {
+		dict_delete(&dir->children, dnode);
+		char *buf = dnode_get(dnode);
+		free(buf); // gets rid of extent and key
+		free(dnode); // todo: put dnode into combined buf, too
+	}
 	return base_kill_dir_if_empty(dir);
 }
 
@@ -528,12 +548,10 @@ int
 base_kill_dir_if_empty(struct base_dir *dir)
 {
 	struct base_dir *parent = dir->parent;
-	if (!parent || parent == dir) return 0; // don't delete root
-	if ((!dict_count(&dir->children))
-	    && (!dict_count(&dir->sub_dirs))) {
-		char *comp = dir->comp;
-		dnode_t *dnode = dict_lookup(&parent->sub_dirs, 
-					     dir->comp);
+	if (parent == dir) return 0; // don't delete root
+	if ((!dict_count(&dir->children)) && (!dict_count(&dir->sub_dirs))) {
+		char *name = dir->name;
+		dnode_t *dnode = dict_lookup(&parent->sub_dirs, dir->name);
 		if (dnode) {
 			dict_delete(&parent->sub_dirs, dnode);
 			char *buf = dnode_get(dnode);
@@ -726,13 +744,14 @@ base_writev_all(int fd, struct iovec *vec, int count)
 }
 
 void
-base_dir_init(struct base_dir *dir, struct base_dir *parent)
+base_dir_init(struct base_dir *dir, struct base_dir *parent, char *name)
 {
 	dict_init(&dir->children, DICTCOUNT_T_MAX,
 		  (int (*)(const void *, const void *)) strcmp);
 	dict_init(&dir->sub_dirs, DICTCOUNT_T_MAX,
 		  (int (*)(const void *, const void *)) strcmp);
 	dir->parent = parent;
+	dir->name = name;
 }
 
 /* "/"         -> [""]
@@ -744,8 +763,8 @@ struct base_path *
 base_parse_path_str(struct pool *pool, char *str)
 {
 	struct base_path *first = NULL, *path = NULL, *prev = NULL;
-	size_t len = strlen(str), i = 0, comp_len;
-	char *comp, *end;
+	size_t len = strlen(str), i = 0, name_len;
+	char *name, *end;
 	while(i < len) {
 		prev = path;
 		if (!(path = pool_calloc(pool, sizeof(struct base_path))))
@@ -753,14 +772,14 @@ base_parse_path_str(struct pool *pool, char *str)
 		if (!first) first = path;
 		if (prev) prev->next = path;
 		i++;
-		comp = str + i;
-		end = strchr(comp, '/');
+		name = str + i;
+		end = strchr(name, '/');
 		if (!end) 
-			comp_len = len - i;
+			name_len = len - i;
 		else 
-			comp_len = end - comp;
-		path->comp = pool_strndup(pool, comp, comp_len);
-		i += comp_len;
+			name_len = end - name;
+		path->name = pool_strndup(pool, name, name_len);
+		i += name_len;
 	}
 	return first;
 }

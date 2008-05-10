@@ -33,7 +33,12 @@ struct base_dir {
 	dict_t children; // name -> extent
 	dict_t sub_dirs; // name -> dir
 	struct base_dir *parent;
-	char *comp;
+	char *name;
+};
+
+struct base_path {
+	char *name;
+	struct base_path *next;
 };
 
 struct base_peer {
@@ -107,11 +112,6 @@ const uint8_t BASE_ENTRY_TYPE_DELETE = 1;
 struct base_extent {
 	off_t off;
 	uint64_t len:48, head_len:16;
-};
-
-struct base_path {
-	char *comp;
-	struct base_path *next;
 };
 
 #endif

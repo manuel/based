@@ -96,7 +96,10 @@ main(int argc, char **argv)
 	
 	base_peer_configure(&peer, argc, argv);
 	base_peer_init(&peer);
+
+	printf("Redoing log...\n");
 	base_peer_redo_log(&peer);
+	printf("Redoing log... done\n");
 
 	event_dispatch();
 }
@@ -197,8 +200,10 @@ base_peer_redo_log(struct base_peer *peer)
 		i++;
 		entry_ptr = log + off;
 		entry = (struct base_entry *) entry_ptr;
-		if (base_peer_index_entry(peer, entry, off) == -1)
-			errx(EXIT_FAILURE, "Cannot index entry %d", base_errno);
+		if (base_peer_index_entry(peer, entry, off) == -1) {
+			fprintf(stderr, "Cannot index entry %d (error %d)\n",
+				i, base_errno);
+		}
 		off += entry->len;
 	}
 

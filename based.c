@@ -192,11 +192,13 @@ base_peer_redo_log(struct base_peer *peer)
 	struct base_entry *entry;
 	char *entry_ptr;
 	off_t off = 0;
+	int i = 0;
 	while(off < log_len) {
+		i++;
 		entry_ptr = log + off;
 		entry = (struct base_entry *) entry_ptr;
 		if (base_peer_index_entry(peer, entry, off) == -1)
-			errx(EXIT_FAILURE, "Cannot index entry");
+			errx(EXIT_FAILURE, "Cannot index entry %d", base_errno);
 		off += entry->len;
 	}
 
@@ -234,8 +236,10 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 	struct base_path *path;
 	struct base_dir *dir = &peer->root;
 
-	if (!(uri = evhttp_decode_uri(req->uri)))
+	if (!(uri = evhttp_decode_uri(req->uri))) {
+		base_errno = BASE_EURL;
 		return -1;
+	}
 
 	path = base_parse_path_str(&peer->pool, uri);
 	free(uri);
@@ -251,8 +255,10 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 				// There are further components in
 				// path, try to enter sub-directory
 				// and continue.
-				if (!(dir = base_dir_sub_dir(dir, path->name)))
+				if (!(dir = base_dir_sub_dir(dir, path->name))) {
+					base_errno = BASE_EPATH;
 					return -1;
+				}
 				path = path->next;
 				continue;
 			}
@@ -265,6 +271,7 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 		}
 	}
 
+	base_errno = BASE_EBUG;
 	return -1; // not reached, Murphy-willing
 }
 
@@ -351,11 +358,15 @@ base_peer_send_content(struct base_peer *peer,
 {
 	char *content;
 	size_t content_len = extent->len - extent->head_len;
-	if (!(content = pool_malloc(&peer->pool, content_len)))
+	if (!(content = pool_malloc(&peer->pool, content_len))) {
+		base_errno = BASE_ENOMEM;
 		return -1;
+	}
 	if (base_pread_all(peer->log_fd, content, content_len,
-			   extent->off + extent->head_len) == -1)
+			   extent->off + extent->head_len) == -1) {
+		base_errno = BASE_EIO;
 		return -1;
+	}
 	evbuffer_add(req->output_buffer, content, content_len);
 	return 0;
 }
@@ -376,9 +387,10 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 {
 	char *content_buf = EVBUFFER_DATA(req->input_buffer);
 	size_t content_len = EVBUFFER_LENGTH(req->input_buffer);
-	if (!content_buf) return -1;
-	if (content_len > BASE_ENTRY_CONTENT_LEN_MAX) return -1;
-
+	if ((!content_buf) || (content_len > BASE_ENTRY_CONTENT_LEN_MAX)) {
+		base_errno = BASE_EREQ;
+		return -1;
+	}
 	dict_t headers;
 	dict_init(&headers, DICTCOUNT_T_MAX,
 		  (int (*)(const void *, const void *)) base_header_cmp);
@@ -397,8 +409,10 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 		{ entry, head_len },
 		{ content_buf, content_len }
 	};
-	if (base_writev_all(peer->log_fd, vec, 2) == -1)
+	if (base_writev_all(peer->log_fd, vec, 2) == -1) {
+		base_errno = BASE_EIO;
 		return -1;
+	}
 
 	off_t old_log_off = peer->log_off;
 	peer->log_off += (head_len + content_len);
@@ -426,8 +440,10 @@ base_peer_index_entry(struct base_peer *peer,
 {
 	char *id;
 	struct base_header *id_header;
-	if (!(id_header = base_entry_get_header(entry, BASE_H_ID)))
+	if (!(id_header = base_entry_get_header(entry, BASE_H_ID))) {
+		errno = BASE_EENTRY;
 		return -1;
+	}
 	id = base_header_get_value(id_header);
 
 	struct base_header *type_header;
@@ -439,8 +455,10 @@ base_peer_index_entry(struct base_peer *peer,
 	}
 
 	struct base_path *path;
-	if (!(path = base_parse_path_str(&peer->pool, id)))
+	if (!(path = base_parse_path_str(&peer->pool, id))) {
+		base_errno = BASE_EPATH;
 		return -1;
+	}
 
 	if (!delete)
 		return base_peer_add_index_entry(peer, entry, path, off);
@@ -470,8 +488,10 @@ base_peer_add_index_entry(struct base_peer *peer, struct base_entry *entry,
 				// sub-directory exists and enter it.
 				if (!(dir = base_dir_ensure_sub_dir(dir, 
 								    path->name,
-								    name_len)))
+								    name_len))) {
+					base_errno = BASE_EPATH;
 					return -1;
+				}
 				path = path->next;
 				continue;
 			}
@@ -479,10 +499,12 @@ base_peer_add_index_entry(struct base_peer *peer, struct base_entry *entry,
 			// The path addresses a directory.  This
 			// shouldn't really happen.  Todo: Detect this
 			// earlier.
+			base_errno = BASE_EPATH;
 			return -1;
 		}
 	}
-	
+
+	base_errno = BASE_EBUG;
 	return -1; // not reached
 }
 
@@ -504,8 +526,10 @@ base_dir_set_child(struct base_dir *dir, struct base_entry *entry,
 		char *combined_buf, *name_copy;
 		size_t combined_buf_len =
 			sizeof(struct base_extent) + name_len + 1;
-		if (!(combined_buf = malloc(combined_buf_len)))
+		if (!(combined_buf = malloc(combined_buf_len))) {
+			base_errno = BASE_ENOMEM;
 			return -1;
+		}
 		memset(combined_buf, 0, combined_buf_len);
 		extent = (struct base_extent *) combined_buf;
 		extent->off = off;
@@ -517,6 +541,7 @@ base_dir_set_child(struct base_dir *dir, struct base_entry *entry,
 			return 0;
 		} else {
 			free(combined_buf);
+			base_errno = BASE_ENOMEM;
 			return -1;
 		}
 	}
@@ -538,6 +563,7 @@ base_dir_ensure_sub_dir(struct base_dir *parent, char *name, size_t name_len)
 	dnode_t *dnode = malloc(sizeof(dnode_t));
 	if (!dnode) {
 		free(combined_buf);
+		base_errno = BASE_ENOMEM;
 		return NULL;
 	}
 	dnode_init(dnode, dir);
@@ -569,6 +595,7 @@ base_peer_remove_index_entry(struct base_peer *peer, struct base_entry *entry,
 		} else {
 			// Path addresses a directory, makes no sense.
 			// Todo: Detect earlier.
+			base_errno = BASE_EPATH;
 			return -1;
 		}
 	}
@@ -625,11 +652,15 @@ base_peer_populate_in_headers(struct base_peer* peer,
 	char *id;
 	size_t id_len;
 	uint16_t header_len;
-	if (!(id = evhttp_decode_uri(req->uri)))
+	if (!(id = evhttp_decode_uri(req->uri))) {
+		base_errno = BASE_EURL;
 		return -1;
+	}
 	id_len = strlen(id);
-	if ((id_len + 1) > BASE_HEADER_LEN_MAX)
+	if ((id_len + 1) > BASE_HEADER_LEN_MAX) {
+		base_errno = BASE_EID;
 		return -1;
+	}
 	header_len = id_len + 1;
 	if (base_add_in_header(peer, headers,
 			       BASE_H_ID, header_len, id) == -1)
@@ -665,14 +696,18 @@ base_add_in_header(struct base_peer *peer, dict_t *headers,
 {
 	struct base_header *header;
 	dnode_t *dnode;
-	if (type > BASE_HEADER_TYPE_MAX)
+	if ((type > BASE_HEADER_TYPE_MAX) || (len > BASE_HEADER_LEN_MAX)) {
+		base_errno = BASE_EHEADER;
 		return -1;
-	if (len > BASE_HEADER_LEN_MAX)
+	}
+	if (!(dnode = pool_malloc(&peer->pool, sizeof(dnode_t)))) {
+		base_errno = BASE_ENOMEM;
 		return -1;
-	if (!(dnode = pool_malloc(&peer->pool, sizeof(dnode_t))))
+	}
+	if (!(header = pool_malloc(&peer->pool, sizeof(struct base_header)))) {
+		base_errno = BASE_ENOMEM;
 		return -1;
-	if (!(header = pool_malloc(&peer->pool, sizeof(struct base_header))))
-		return -1;
+	}
 	header->type = type;
 	header->len = len;
 	dnode_init(dnode, value);
@@ -701,11 +736,16 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 		if (iter == dict_last(headers)) break;
 		iter = dict_next(headers, iter);
 	}
-	if (head_len > BASE_ENTRY_HEAD_LEN_MAX)	return -1;
+	if (head_len > BASE_ENTRY_HEAD_LEN_MAX)	{
+		base_errno = BASE_EHEAD;
+		return -1;
+	}
 	
 	struct base_entry *entry;
-	if (!(entry = pool_malloc(&peer->pool, head_len)))
+	if (!(entry = pool_malloc(&peer->pool, head_len))) {
+		base_errno = BASE_ENOMEM;
 		return -1;
+	}
 	entry->head_len = head_len;
 	entry->len = head_len + content_len;
 	

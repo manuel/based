@@ -1,2 +1,2 @@
 #!/bin/bash
-wget --post-file $2 localhost:8080$1
+wget --post-file $2 http://localhost:8080$1

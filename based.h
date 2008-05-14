@@ -3,8 +3,6 @@
 
 #include <err.h>
 #include <errno.h>
-#include <event.h>
-#include <evhttp.h>
 #include <fcntl.h>
 #include <netinet/ip.h>
 #include <stdint.h>
@@ -16,6 +14,9 @@
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <unistd.h>
+
+#include <event.h>
+#include <evhttp.h>
 
 #include "dict.h"
 #include "pool.h"

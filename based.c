@@ -254,12 +254,12 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 			base_errno = BASE_ENOMEM;
 			return -1;
 		}
-		struct evkeyvalq *q;
-		evhttp_parse_query(query, q);
-		if (level_str = evhttp_find_header(q, "level")) {
+		struct evkeyvalq q;
+		evhttp_parse_query(query, &q);
+		if (level_str = evhttp_find_header(&q, "level")) {
 			level = atoi(level_str);
 		}
-		evhttp_clear_headers(q);
+		evhttp_clear_headers(&q);
 	} else {
 		uri_path = uri;
 	}

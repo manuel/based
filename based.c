@@ -29,7 +29,8 @@ base_peer_send_content(struct base_peer *peer,
 int
 base_peer_get_dir(struct base_peer *peer, 
 		  struct evhttp_request *req,
-		  struct base_dir *dir);
+		  struct base_dir *dir,
+		  int level);
 
 /* Ingress data path */
 int
@@ -237,7 +238,8 @@ base_peer_http_callback(struct evhttp_request *req, void *arg)
 int
 base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 {
-	char *uri;
+	char *uri, *query, *uri_path, *level_str;
+	int level = 0;
 	struct base_path *path;
 	struct base_dir *dir = &peer->root;
 
@@ -246,7 +248,23 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 		return -1;
 	}
 
-	path = base_parse_path_str(&peer->pool, uri);
+	// todo: search before decoding?
+	if (query = strchr(uri, '?')) {
+		if (!(uri_path = pool_strndup(&peer->pool, uri, query - uri))) {
+			base_errno = BASE_ENOMEM;
+			return -1;
+		}
+		struct evkeyvalq *q;
+		evhttp_parse_query(query, q);
+		if (level_str = evhttp_find_header(q, "level")) {
+			level = atoi(level_str);
+		}
+		evhttp_clear_headers(q);
+	} else {
+		uri_path = uri;
+	}
+
+	path = base_parse_path_str(&peer->pool, uri_path);
 	free(uri);
 	if (!path) return -1;
 	
@@ -272,7 +290,7 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 			// (An empty component indicates that the
 			// path denotes a directory, e.g. /foo/ is
 			// represented as the components "foo" and "".)
-			return base_peer_get_dir(peer, req, dir);
+			return base_peer_get_dir(peer, req, dir, level);
 		}
 	}
 
@@ -298,27 +316,63 @@ base_peer_get_entry(struct base_peer *peer,
 	}
 }
 
+struct base_dir_lister {
+	struct base_peer *peer;
+	struct evhttp_request *req;
+	int level, total_level;
+};
+
 void
 base_dir_listing_sub_dir(dict_t *ign, dnode_t *dnode, void *arg)
 {
-	struct evhttp_request *req = arg;
-	evbuffer_add_printf(req->output_buffer, "%s/\n", dnode_getkey(dnode));
+	struct base_dir_lister *lister = arg;
+	int i;
+	for (i = lister->level; i < lister->total_level; i++) {
+		evbuffer_add_printf(lister->req->output_buffer, "\t");
+	}
+	evbuffer_add_printf(lister->req->output_buffer, "%s/\n", dnode_getkey(dnode));
+	if (lister->level > 0) {
+		struct base_dir *sub_dir = dnode_get(dnode);
+		base_peer_list_dir(lister->peer, lister->req, sub_dir,
+				   lister->level - 1, lister->total_level);
+	}
 }
 
 void
 base_dir_listing_child(dict_t *ign, dnode_t *dnode, void *arg)
 {
-	struct evhttp_request *req = arg;
-	evbuffer_add_printf(req->output_buffer, "%s\n", dnode_getkey(dnode));
+	struct base_dir_lister *lister = arg;
+	int i;
+	for (i = lister->level; i < lister->total_level; i++) {
+		evbuffer_add_printf(lister->req->output_buffer, "\t");
+	}
+	evbuffer_add_printf(lister->req->output_buffer, "%s\n", dnode_getkey(dnode));
 }
 
 int
-base_peer_get_dir(struct base_peer *peer, 
-		  struct evhttp_request *req,
-		  struct base_dir *dir)
+base_peer_list_dir(struct base_peer *peer,
+		   struct evhttp_request *req,
+		   struct base_dir *dir,
+		   int level,
+		   int total_level)
 {
-	dict_process(&dir->sub_dirs, req, base_dir_listing_sub_dir);
-	dict_process(&dir->children, req, base_dir_listing_child);
+	struct base_dir_lister lister;
+	memset(&lister, 0, sizeof lister);
+	lister.peer = peer;
+	lister.req = req;
+	lister.level = level;
+	lister.total_level = total_level;
+	dict_process(&dir->sub_dirs, &lister, base_dir_listing_sub_dir);
+	dict_process(&dir->children, &lister, base_dir_listing_child);
+}
+
+int
+base_peer_get_dir(struct base_peer *peer,
+		  struct evhttp_request *req,
+		  struct base_dir *dir,
+		  int level)
+{
+	base_peer_list_dir(peer, req, dir, level, level);
 	evhttp_add_header(req->output_headers, "Content-type", 
 			  "text/plain; charset=utf-8");
 	evhttp_send_reply(req, HTTP_OK, "OK", NULL);
@@ -853,7 +907,11 @@ base_dir_init(struct base_dir *dir, struct base_dir *parent, char *name)
 	dir->name = name;
 }
 
-/* "/"         -> [""]
+/* Parses a hierarchical path into a series of components.  HTTP URL
+   stuff like query args should have already been removed from the
+   string.
+
+   "/"         -> [""]
    "/foo"      -> ["foo"]
    "/foo/"     -> ["foo", ""]
    "/foo/bar"  -> ["foo", "bar"] 

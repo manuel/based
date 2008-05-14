@@ -1,8 +1,7 @@
 Handle overflow when writing to log. also check before writing whether
    too large for a single file.
 
-Use only path component of URL as ID, not e.g. args after ? or
-   fragment after #
+Don't include URL fragment after # in ID.
 
 test suite
 

@@ -3,10 +3,8 @@
 
 #include <err.h>
 #include <errno.h>
-#include <event2/event.h>
-#include <event2/buffer.h>
-#include <event2/http.h>
-#include <event2/http_struct.h>
+#include <event.h>
+#include <evhttp.h>
 #include <fcntl.h>
 #include <netinet/ip.h>
 #include <stdint.h>

@@ -78,7 +78,7 @@ base_header_get_value(struct base_header *);
 int
 base_pread_all(int, void *, size_t, off_t);
 int
-base_writev_all(int, struct iovec *, int);
+base_write_all(int, void *, size_t);
 struct base_path *
 base_parse_path_str(struct pool *, char *);
 
@@ -446,7 +446,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 {
 	char *content_buf = EVBUFFER_DATA(req->input_buffer);
 	size_t content_len = EVBUFFER_LENGTH(req->input_buffer);
-	if ((!content_buf) || (content_len > BASE_ENTRY_CONTENT_LEN_MAX)) {
+	if ((content_len > BASE_ENTRY_CONTENT_LEN_MAX)) {
 		base_errno = BASE_EREQ;
 		return -1;
 	}
@@ -464,11 +464,11 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 					   &headers, content_len)) == -1)
 		return -1;
 
-	struct iovec vec[2] = {
-		{ entry, head_len },
-		{ content_buf, content_len }
-	};
-	if (base_writev_all(peer->log_fd, vec, 2) == -1) {
+	if (base_write_all(peer->log_fd, entry, head_len) == -1) {
+		base_errno = BASE_EIO;
+		return -1;
+	}
+	if (base_write_all(peer->log_fd, content_buf, content_len) == -1) {
 		base_errno = BASE_EIO;
 		return -1;
 	}
@@ -870,28 +870,16 @@ base_pread_all(int fd, void *buf, size_t count, off_t offset)
 	return 0;
 }
 
-/* Adapted from Linux Journal, September 2007. */
 int
-base_writev_all(int fd, struct iovec *vec, int count)
+base_write_all(int fd, void *buf, size_t count)
 {
-	int i = 0;
 	ssize_t res;
 	size_t written = 0;
-	while (i < count) {
-		if ((res = writev(fd, &vec[i], count - i)) == -1)
+	while(written < count) {
+		if ((res = write(fd, buf + written, count - written)) == -1)
 			return -1;
-		written += res;
-		while (res > 0) {
-			if (res < vec[i].iov_len) {
-				vec[i].iov_base = 
-					(char *) vec[i].iov_base + res;
-				vec[i].iov_len -= res;
-				res = 0;
-			} else {
-				res -= vec[i].iov_len;
-				++i;
-			}
-		}
+		else
+			written += res;
 	}
 	return 0;
 }

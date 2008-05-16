@@ -18,3 +18,5 @@ Limit path components' lengths and number of components to something
 sensible.
 
 allow empty PUTs
+
+Allow '/' in ID.

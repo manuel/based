@@ -19,4 +19,5 @@ sensible.
 
 allow empty PUTs
 
-Allow '/' in ID.
+Allow '/' in ID.  Parse URI before decoding... ? and / in path
+segments should be allowed.

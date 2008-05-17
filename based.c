@@ -711,6 +711,7 @@ base_peer_populate_in_headers(struct base_peer* peer,
 	char *id, *id_copy;
 	size_t id_len;
 	uint16_t header_len;
+	// Enh: this URI decoding is done two times per request processing
 	if (!(id = evhttp_decode_uri(req->uri))) {
 		base_errno = BASE_EURL;
 		return -1;

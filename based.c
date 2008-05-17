@@ -52,8 +52,7 @@ int
 base_peer_add_index_entry(struct base_peer *peer, struct base_entry *entry,
 			  struct base_path *path, off_t off);
 int
-base_peer_remove_index_entry(struct base_peer *peer, struct base_entry *entry,
-			     struct base_path *path);
+base_peer_remove_index_entry(struct base_peer *peer, struct base_path *path);
 void
 base_dir_init(struct base_dir *, struct base_dir *parent, char *name);
 struct base_extent *
@@ -522,7 +521,7 @@ base_peer_index_entry(struct base_peer *peer,
 	if (!delete)
 		return base_peer_add_index_entry(peer, entry, path, off);
 	else
-		return base_peer_remove_index_entry(peer, entry, path);
+		return base_peer_remove_index_entry(peer, path);
 }
 
 int
@@ -631,8 +630,7 @@ base_dir_ensure_sub_dir(struct base_dir *parent, char *name, size_t name_len)
 }
 
 int
-base_peer_remove_index_entry(struct base_peer *peer, struct base_entry *entry,
-			     struct base_path *path)
+base_peer_remove_index_entry(struct base_peer *peer, struct base_path *path)
 {
 	struct base_dir *dir = &peer->root;
 	for(;;) {

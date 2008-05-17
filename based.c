@@ -698,17 +698,17 @@ base_kill_dir_if_empty(struct base_dir *dir)
 }
 
 /* Fill the headers dictionary with headers that should be written to
-   disk for the entry corresponding to a HTTP PUT request.  New memory
-   for the headers should be allocated from the write pool; it is also
-   OK to reference data in the request, as the headers will be written
-   before the request is destroyed. */
+   disk for the entry corresponding to a HTTP PUT or DELETE request.
+   New memory for the headers should be allocated from the write pool;
+   it is also OK to reference data in the request, as the headers will
+   be written before the request is destroyed. */
 int
 base_peer_populate_in_headers(struct base_peer* peer,
 			      struct evhttp_request *req, 
 			      dict_t *headers)
 {
-	// ID header, reference ID from request URL.
-	char *id;
+	// ID header
+	char *id, *id_copy;
 	size_t id_len;
 	uint16_t header_len;
 	if (!(id = evhttp_decode_uri(req->uri))) {
@@ -718,20 +718,31 @@ base_peer_populate_in_headers(struct base_peer* peer,
 	id_len = strlen(id);
 	if ((id_len + 1) > BASE_HEADER_LEN_MAX) {
 		base_errno = BASE_EID;
-		return -1;
+		goto err;
+	}
+	if (!(id_copy = pool_strndup(&peer->pool, id, id_len))) {
+		base_errno = BASE_ENOMEM;
+		goto err;
 	}
 	header_len = id_len + 1;
 	if (base_add_in_header(peer, headers,
-			       BASE_H_ID, header_len, id) == -1)
-		return -1;
-	
+			       BASE_H_ID, header_len, id_copy) == -1) {
+		base_errno = BASE_EHEADER;
+		goto err;
+	}
+	// Entry type header for deletions
 	if (base_req_is_delete(req)) {
 		if (base_add_in_header(peer, headers, BASE_H_ENTRY_TYPE, 1,
-				       (char *) &BASE_ENTRY_TYPE_DELETE) == -1)
-			return -1;
+				       (char *) &BASE_ENTRY_TYPE_DELETE) == -1) {
+			base_errno = BASE_EHEADER;
+			goto err;
+		}
 	}
-	
+	free(id);
 	return 0;
+ err:
+	free(id);
+	return -1;
 }
 
 int

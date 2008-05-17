@@ -53,15 +53,9 @@ base_peer_add_index_entry(struct base_peer *peer, struct base_entry *entry,
 			  struct base_path *path, off_t off);
 int
 base_peer_remove_index_entry(struct base_peer *peer, struct base_path *path);
-void
-base_dir_init(struct base_dir *, struct base_dir *parent, char *name);
-struct base_extent *
-base_dir_child(struct base_dir *, char *name);
 int
 base_dir_set_child(struct base_dir *, struct base_entry *,
 		   char *name, size_t name_len, off_t);
-struct base_dir *
-base_dir_sub_dir(struct base_dir *, char *name);
 struct base_dir *
 base_dir_ensure_sub_dir(struct base_dir *, char *name, size_t name_len);
 int
@@ -74,13 +68,18 @@ struct base_header *
 base_entry_get_header(struct base_entry *, uint16_t type);
 char *
 base_header_get_value(struct base_header *);
+struct base_path *
+base_parse_path_str(struct pool *, char *);
+void
+base_dir_init(struct base_dir *, struct base_dir *parent, char *name);
+struct base_extent *
+base_dir_child(struct base_dir *, char *name);
+struct base_dir *
+base_dir_sub_dir(struct base_dir *, char *name);
 int
 base_pread_all(int, void *, size_t, off_t);
 int
 base_write_all(int, void *, size_t);
-struct base_path *
-base_parse_path_str(struct pool *, char *);
-
 
 
 int
@@ -234,6 +233,8 @@ base_peer_http_callback(struct evhttp_request *req, void *arg)
 	if (res == -1) evhttp_send_error(req, 503, "error");
 }
 
+/* Reading and sending outgoing entries or directories */
+
 int
 base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 {
@@ -247,9 +248,12 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 		return -1;
 	}
 
-	// todo: search before decoding?
+	/* If the URI has query arguments, look for the level argument
+	   (for deep directory listings) and remove the query from the
+	   parsed path.  Todo: search '?' before decoding URI? */
 	if (query = strchr(uri, '?')) {
 		if (!(uri_path = pool_strndup(&peer->pool, uri, query - uri))) {
+			free(uri);
 			base_errno = BASE_ENOMEM;
 			return -1;
 		}
@@ -293,8 +297,7 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 		}
 	}
 
-	base_errno = BASE_EBUG;
-	return -1; // not reached, Murphy-willing
+	assert(0); // not reached
 }
 
 int
@@ -314,6 +317,45 @@ base_peer_get_entry(struct base_peer *peer,
 		return 0;
 	}
 }
+
+#if BASE_USE_SENDFILE
+
+int
+base_peer_send_content(struct base_peer *peer,
+		       struct evhttp_request *req,
+		       struct base_extent *extent)
+{
+	req->output_buffer->sf_fd = peer->log_fd;
+	req->output_buffer->sf_off = extent->off + extent->head_len;
+	req->output_buffer->off = extent->len - extent->head_len;
+	return 0;
+}
+
+#else
+
+int
+base_peer_send_content(struct base_peer *peer,
+		       struct evhttp_request *req,
+		       struct base_extent *extent)
+{
+	char *content;
+	size_t content_len = extent->len - extent->head_len;
+	if (!(content = pool_malloc(&peer->pool, content_len))) {
+		base_errno = BASE_ENOMEM;
+		return -1;
+	}
+	if (base_pread_all(peer->log_fd, content, content_len,
+			   extent->off + extent->head_len) == -1) {
+		base_errno = BASE_EIO;
+		return -1;
+	}
+	evbuffer_add(req->output_buffer, content, content_len);
+	return 0;
+}
+
+#endif // BASE_USE_SENDFILE
+
+/* Directory listing */
 
 struct base_dir_lister {
 	struct base_peer *peer;
@@ -378,58 +420,7 @@ base_peer_get_dir(struct base_peer *peer,
 	return 0;
 }
 
-struct base_extent *
-base_dir_child(struct base_dir *dir, char *name)
-{
-	dnode_t *dnode = dict_lookup(&dir->children, name);
-	if (dnode) return dnode_get(dnode);
-	else return NULL;
-}
-
-struct base_dir *
-base_dir_sub_dir(struct base_dir *dir, char *name)
-{
-	dnode_t *dnode = dict_lookup(&dir->sub_dirs, name);
-	if (dnode) return dnode_get(dnode);
-	else return NULL;
-}
-
-#if BASE_USE_SENDFILE
-
-int
-base_peer_send_content(struct base_peer *peer, 
-		       struct evhttp_request *req,
-		       struct base_extent *extent)
-{
-	req->output_buffer->sf_fd = peer->log_fd;
-	req->output_buffer->sf_off = extent->off + extent->head_len;
-	req->output_buffer->off = extent->len - extent->head_len;
-	return 0;
-}
-
-#else
-
-int
-base_peer_send_content(struct base_peer *peer, 
-		       struct evhttp_request *req,
-		       struct base_extent *extent)
-{
-	char *content;
-	size_t content_len = extent->len - extent->head_len;
-	if (!(content = pool_malloc(&peer->pool, content_len))) {
-		base_errno = BASE_ENOMEM;
-		return -1;
-	}
-	if (base_pread_all(peer->log_fd, content, content_len,
-			   extent->off + extent->head_len) == -1) {
-		base_errno = BASE_EIO;
-		return -1;
-	}
-	evbuffer_add(req->output_buffer, content, content_len);
-	return 0;
-}
-
-#endif // BASE_USE_SENDFILE
+/* Writing and indexing incoming entries */
 
 int
 base_header_cmp(struct base_header *h1, struct base_header *h2)
@@ -445,7 +436,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 {
 	char *content_buf = EVBUFFER_DATA(req->input_buffer);
 	size_t content_len = EVBUFFER_LENGTH(req->input_buffer);
-	if ((content_len > BASE_ENTRY_CONTENT_LEN_MAX)) {
+	if (content_len > BASE_ENTRY_CONTENT_LEN_MAX) {
 		base_errno = BASE_EREQ;
 		return -1;
 	}
@@ -482,15 +473,14 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	return 0;
 }
 
-/* Add an entry to the directory index.  This is called when a new
-   entry is PUT or DELETEd via the HTTP interface, and when we are
-   redoing the log at startup. -- If there's already a document in the
-   index with that ID, simply update the index node with the extent of
-   the new entry.  Otherwise we have to insert a new index node (and
-   maybe directory nodes above), mapping the ID to the extent of the
-   new entry.  Or, if the entry is a delete entry, we have to remove
-   any existing mapping (and maybe now-empty directory nodes
-   above). */
+/* Index an entry.  This is called when a new entry is PUT or DELETEd
+   via the HTTP interface, and when we are redoing the log at
+   startup. -- If there's already a document in the index with that
+   ID, simply update the index node with the extent of the new entry.
+   Otherwise we have to insert a new index node (and maybe directory
+   nodes above), mapping the ID to the extent of the new entry.  Or,
+   if the entry is a delete entry, we have to remove any existing
+   mapping (and maybe now-empty directory nodes above). */
 int
 base_peer_index_entry(struct base_peer *peer,
 		      struct base_entry *entry, 
@@ -621,7 +611,6 @@ base_dir_ensure_sub_dir(struct base_dir *parent, char *name, size_t name_len)
 	dnode_t *dnode = malloc(sizeof(dnode_t));
 	if (!dnode) {
 		free(combined_buf);
-		base_errno = BASE_ENOMEM;
 		return NULL;
 	}
 	dnode_init(dnode, dir);
@@ -842,6 +831,8 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 	return head_len;
 }
 
+/* Utilities */
+
 struct base_header *
 base_entry_get_header(struct base_entry *entry, uint16_t type)
 {
@@ -863,46 +854,6 @@ char *
 base_header_get_value(struct base_header *header)
 {
 	return ((char *) header) + sizeof(struct base_header);
-}
-
-int
-base_pread_all(int fd, void *buf, size_t count, off_t offset)
-{
-	ssize_t res;
-	size_t read = 0;
-	while(read < count) {
-		if ((res = pread(fd, buf + read, count - read,
-				 offset + read)) == -1)
-			return -1;
-		else
-			read += res;
-	}
-	return 0;
-}
-
-int
-base_write_all(int fd, void *buf, size_t count)
-{
-	ssize_t res;
-	size_t written = 0;
-	while(written < count) {
-		if ((res = write(fd, buf + written, count - written)) == -1)
-			return -1;
-		else
-			written += res;
-	}
-	return 0;
-}
-
-void
-base_dir_init(struct base_dir *dir, struct base_dir *parent, char *name)
-{
-	dict_init(&dir->children, DICTCOUNT_T_MAX,
-		  (int (*)(const void *, const void *)) strcmp);
-	dict_init(&dir->sub_dirs, DICTCOUNT_T_MAX,
-		  (int (*)(const void *, const void *)) strcmp);
-	dir->parent = parent;
-	dir->name = name;
 }
 
 /* Parses a hierarchical path into a series of components.  HTTP URL
@@ -940,10 +891,57 @@ base_parse_path_str(struct pool *pool, char *str)
 }
 
 void
-base_print_path(struct base_path *path)
+base_dir_init(struct base_dir *dir, struct base_dir *parent, char *name)
 {
-	while(path) {
-		printf("/%s", path->name);
-		path = path->next;
+	dict_init(&dir->children, DICTCOUNT_T_MAX,
+		  (int (*)(const void *, const void *)) strcmp);
+	dict_init(&dir->sub_dirs, DICTCOUNT_T_MAX,
+		  (int (*)(const void *, const void *)) strcmp);
+	dir->parent = parent;
+	dir->name = name;
+}
+
+struct base_extent *
+base_dir_child(struct base_dir *dir, char *name)
+{
+	dnode_t *dnode = dict_lookup(&dir->children, name);
+	if (dnode) return dnode_get(dnode);
+	else return NULL;
+}
+
+struct base_dir *
+base_dir_sub_dir(struct base_dir *dir, char *name)
+{
+	dnode_t *dnode = dict_lookup(&dir->sub_dirs, name);
+	if (dnode) return dnode_get(dnode);
+	else return NULL;
+}
+
+int
+base_pread_all(int fd, void *buf, size_t count, off_t offset)
+{
+	ssize_t res;
+	size_t read = 0;
+	while(read < count) {
+		if ((res = pread(fd, buf + read, count - read,
+				 offset + read)) == -1)
+			return -1;
+		else
+			read += res;
 	}
+	return 0;
+}
+
+int
+base_write_all(int fd, void *buf, size_t count)
+{
+	ssize_t res;
+	size_t written = 0;
+	while(written < count) {
+		if ((res = write(fd, buf + written, count - written)) == -1)
+			return -1;
+		else
+			written += res;
+	}
+	return 0;
 }

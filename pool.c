@@ -57,7 +57,7 @@ pool_calloc(struct pool *pool, size_t size)
 char *
 pool_strndup(struct pool *pool, const char *s, size_t n)
 {
-	// The call to strlen seems to be unneeded in all use cases
+	// Enh: the call to strlen seems to be unneeded in all use cases
 	size_t slen = strlen(s), len = (n > slen ? slen : n);
 	char *buf = pool_malloc(pool, len + 1);
 	if (buf) {

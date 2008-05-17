@@ -716,7 +716,8 @@ base_peer_populate_in_headers(struct base_peer* peer,
 		return -1;
 	}
 	id_len = strlen(id);
-	if ((id_len + 1) > BASE_HEADER_LEN_MAX) {
+	header_len = id_len + 1;
+	if (header_len > BASE_HEADER_LEN_MAX) {
 		base_errno = BASE_EID;
 		goto err;
 	}
@@ -724,7 +725,6 @@ base_peer_populate_in_headers(struct base_peer* peer,
 		base_errno = BASE_ENOMEM;
 		goto err;
 	}
-	header_len = id_len + 1;
 	if (base_add_in_header(peer, headers,
 			       BASE_H_ID, header_len, id_copy) == -1) {
 		base_errno = BASE_EHEADER;

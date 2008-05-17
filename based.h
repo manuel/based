@@ -65,7 +65,7 @@ struct base_peer {
    ssize_t, which means theoretical max lengths are 2^31-1 on 32-bit
    and 2^63-1 on 64-bit.  The file format supports up to 2^48-1 bytes
    of entry length, but currently we artificially restrict it to
-   2^31-1 so we can use size_t and off_t on 32-bit platforms.
+   2^31-1 so we can use ssize_t and off_t on 32-bit platforms.
    Furthermore, for coding convenience the content length is
    restricted to (max entry length) - (max head length), even though
    the file format supports content lengths up to (max entry length) -

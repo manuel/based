@@ -259,7 +259,7 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 		}
 		struct evkeyvalq q;
 		evhttp_parse_query(query, &q);
-		if (level_str = evhttp_find_header(&q, "level")) {
+		if (level_str = (char *) evhttp_find_header(&q, "level")) {
 			level = atoi(level_str);
 		}
 		evhttp_clear_headers(&q);

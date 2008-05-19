@@ -282,8 +282,8 @@ base_peer_get(struct base_peer *peer, struct evhttp_request *req)
 				// path, try to enter sub-directory
 				// and continue.
 				if (!(dir = base_dir_sub_dir(dir, path->name))) {
-					base_errno = BASE_EPATH;
-					return -1;
+					evhttp_send_error(req, 404, "not found");
+					return 0;
 				}
 				path = path->next;
 				continue;

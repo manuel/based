@@ -33,7 +33,7 @@
    http://monkeymail.org/archives/libevent-users/2008-May/thread.html */
 #define BASE_USE_SENDFILE 0
 
-int base_errno;
+#define BASE_EOK 0
 #define BASE_EURL 1
 #define BASE_EBUG 2
 #define BASE_EPATH 3
@@ -45,6 +45,7 @@ int base_errno;
 #define BASE_EHEADER 9
 #define BASE_EHEAD 10
 #define BASE_EMD5 11
+int base_errno = BASE_EOK;
 
 struct base_dir {
 	dict_t children; // name -> extent

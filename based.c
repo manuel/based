@@ -44,6 +44,8 @@ base_add_in_header(struct base_peer *, dict_t *headers,
 ssize_t
 base_peer_marshall_entry_head(struct base_peer *, struct base_entry **,
 			      dict_t *headers, size_t content_len);
+int
+base_peer_compute_md5_digest(struct base_peer *, struct base_entry *);
 
 /* Index maintenance */
 int
@@ -153,24 +155,26 @@ base_peer_configure(struct base_peer *peer, int argc, char **argv)
 void
 base_peer_init(struct base_peer *peer)
 {
+	// Internals
 	if ((peer->log_fd = open(peer->log_file,
 				 O_RDWR | O_CREAT | O_SYNC | O_APPEND,
 				 S_IRUSR | S_IWUSR)) == -1)
 		err(EXIT_FAILURE, "Cannot open log file");
-
 	base_dir_init(&peer->root, &peer->root, "");
-	
-	pool_init(&peer->pool, POOL_DEFAULT_PAGE_SIZE);
+	pool_init(&peer->pool, 1024 * 16);
 
+	// libgcrypt
+	printf("libgcrypt %s\n", gcry_check_version(NULL));
+	if (gcry_md_open(&peer->digest, GCRY_MD_MD5, 0) != 0)
+		errx(EXIT_FAILURE, "Cannot initialize MD5 digest");
+
+	// libevent
 	if (!event_init())
 		errx(EXIT_FAILURE, "Cannot initialize libevent");
-
 	if (!(peer->httpd = evhttp_new(NULL)))
 		errx(EXIT_FAILURE, "Cannot create HTTP server");
-
 	if (evhttp_bind_socket(peer->httpd, peer->http_addr, peer->http_port))
 		errx(EXIT_FAILURE, "Cannot bind HTTP server");
-
 	evhttp_set_gencb(peer->httpd, base_peer_http_callback, peer);
 }
 
@@ -447,24 +451,35 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	if (base_peer_populate_in_headers(peer, req, &headers) == -1)
 		return -1;
 	
-	struct base_entry *entry;
-	ssize_t head_len;
-	if ((head_len =
-	     base_peer_marshall_entry_head(peer, &entry, 
-					   &headers, content_len)) == -1)
+	// Fill the entry head.
+	struct base_entry *entry_head;
+	if (base_peer_marshall_entry_head(peer, &entry_head,
+					  &headers, content_len) == -1)
 		return -1;
 
-	if (base_write_all(peer->log_fd, entry, head_len) == -1) {
-		base_errno = BASE_EIO;
+	// Combine entry head and content into a single entry.
+	char *entry_buf;
+	struct base_entry *entry;
+	if (!(entry_buf = pool_malloc(&peer->pool, entry_head->len))) {
+		base_errno = BASE_ENOMEM;
 		return -1;
 	}
-	if (base_write_all(peer->log_fd, content_buf, content_len) == -1) {
+	memcpy(entry_buf, entry_head, entry_head->head_len);
+	memcpy(entry_buf + entry_head->head_len, content_buf, content_len);
+	entry = (struct base_entry *) entry_buf;
+
+	if (base_peer_compute_md5_digest(peer, entry) == -1) {
+		base_errno = BASE_EMD5;
+		return -1;
+	}
+
+	if (base_write_all(peer->log_fd, entry, entry->len) == -1) {
 		base_errno = BASE_EIO;
 		return -1;
 	}
 
 	off_t old_log_off = peer->log_off;
-	peer->log_off += (head_len + content_len);
+	peer->log_off += entry->len;
 	
 	if (base_peer_index_entry(peer, entry, old_log_off) == -1)
 		return -1;
@@ -773,12 +788,11 @@ base_add_in_header(struct base_peer *peer, dict_t *headers,
 	return 0;
 }
 
-/* Create the binary representation of the head of an entry so that
-   the content can be written after it.  The memory is allocated from
-   the write pool. */
+/* Create the binary representation of the head of an entry. The
+   memory is allocated from the write pool. */
 ssize_t
-base_peer_marshall_entry_head(struct base_peer *peer, 
-			      struct base_entry **out_entry,
+base_peer_marshall_entry_head(struct base_peer *peer,
+			      struct base_entry **out_entry_head,
 			      dict_t *headers, 
 			      size_t content_len)
 {
@@ -799,18 +813,19 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 		return -1;
 	}
 	
-	struct base_entry *entry;
-	if (!(entry = pool_malloc(&peer->pool, head_len))) {
+	// Zero the entry including the MD5 digest.
+	struct base_entry *entry_head;
+	if (!(entry_head = pool_calloc(&peer->pool, head_len))) {
 		base_errno = BASE_ENOMEM;
 		return -1;
 	}
-	entry->head_len = head_len;
-	entry->len = head_len + content_len;
+	entry_head->head_len = head_len;
+	entry_head->len = head_len + content_len;
 	
 	// Serialize the headers by looping through the supplied
 	// dictionary and writing them into their destination
 	// locations in the space allocated in the entry's head.
-	char *dest = ((char *) entry) + sizeof(struct base_entry);
+	char *dest = ((char *) entry_head) + sizeof(struct base_entry);
 	struct base_header *dest_header;
 	char *dest_value, *value;
 	iter = dict_first(headers);
@@ -827,8 +842,22 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 		iter = dict_next(headers, iter);
 	}
 
-	*out_entry = entry;
+	*out_entry_head = entry_head;
 	return head_len;
+}
+
+/* Compute the MD5 digest of the entry head and the content and store
+   it in the entry.  The digest bytes in the entry are assumed to be
+   already zeroed. */
+int
+base_peer_compute_md5_digest(struct base_peer *peer, struct base_entry *entry)
+{
+	uint8_t *md5;
+	gcry_md_reset(peer->digest);
+	gcry_md_write(peer->digest, entry, entry->len);
+	if (!(md5 = gcry_md_read(peer->digest, GCRY_MD_MD5))) return -1;
+	memcpy(((char *) entry) + offsetof(struct base_entry, md5), md5, 16);
+	return 0;
 }
 
 /* Utilities */

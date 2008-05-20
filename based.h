@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <gcrypt.h>
+
 #include <event.h>
 #include <evhttp.h>
 
@@ -42,6 +44,7 @@ int base_errno;
 #define BASE_EID 8
 #define BASE_EHEADER 9
 #define BASE_EHEAD 10
+#define BASE_EMD5 11
 
 struct base_dir {
 	dict_t children; // name -> extent
@@ -59,6 +62,7 @@ struct base_peer {
 	in_port_t http_port;
 	struct evhttp *httpd;
 	struct pool pool;
+	gcry_md_hd_t digest;
 };
 
 /* 32/64-bit plan: entry lengths should always be representable using
@@ -72,8 +76,13 @@ struct base_peer {
    8 if the head is empty.  This restriction could easily be lifted if
    required. */
 
+/* The MD5 digest of an entry includes the head and content.  During
+   computation of the digest, the 16 digest bytes themselves are
+   zeroed. */
+
 struct base_entry {
 	uint64_t len:48, head_len:16;
+	uint8_t md5[16];
 	// headers
 	// content
 };

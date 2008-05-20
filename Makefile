@@ -1,5 +1,5 @@
 CCFLAGS=-g
-LDFLAGS=-levent
+LDFLAGS=-levent -lgcrypt
 
 based: dict.o list.o pool.o based.o
 

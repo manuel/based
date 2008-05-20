@@ -1,4 +1,5 @@
-Requires a recent libevent (1.4).  Tested on Debian stable/x86.
+Requires a recent libevent (1.4) and libgcrypt.
+Tested on Debian stable/x86.
 
 The quick rundown:
 

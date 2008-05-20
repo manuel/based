@@ -164,7 +164,6 @@ base_peer_init(struct base_peer *peer)
 	pool_init(&peer->pool, 1024 * 16);
 
 	// libgcrypt
-	printf("libgcrypt %s\n", gcry_check_version(NULL));
 	if (gcry_md_open(&peer->digest, GCRY_MD_MD5, 0) != 0)
 		errx(EXIT_FAILURE, "Cannot initialize MD5 digest");
 
@@ -856,7 +855,7 @@ base_peer_compute_md5_digest(struct base_peer *peer, struct base_entry *entry)
 	gcry_md_reset(peer->digest);
 	gcry_md_write(peer->digest, entry, entry->len);
 	if (!(md5 = gcry_md_read(peer->digest, GCRY_MD_MD5))) return -1;
-	memcpy(((char *) entry) + offsetof(struct base_entry, md5), md5, 16);
+	memcpy(entry->md5, md5, 16);
 	return 0;
 }
 

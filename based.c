@@ -812,7 +812,6 @@ base_peer_marshall_entry_head(struct base_peer *peer,
 		return -1;
 	}
 	
-	// Zero the entry including the MD5 digest.
 	struct base_entry *entry_head;
 	if (!(entry_head = pool_calloc(&peer->pool, head_len))) {
 		base_errno = BASE_ENOMEM;
@@ -852,6 +851,7 @@ int
 base_peer_compute_md5_digest(struct base_peer *peer, struct base_entry *entry)
 {
 	uint8_t *md5;
+	memset(entry->md5, 0, 16);
 	gcry_md_reset(peer->digest);
 	gcry_md_write(peer->digest, entry, entry->len);
 	if (!(md5 = gcry_md_read(peer->digest, GCRY_MD_MD5))) return -1;

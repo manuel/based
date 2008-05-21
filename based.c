@@ -443,6 +443,9 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 		base_errno = BASE_EREQ;
 		return -1;
 	}
+
+	// Populate the headers dictionary with the needed headers,
+	// then marshall the entry head at once.
 	dict_t headers;
 	dict_init(&headers, DICTCOUNT_T_MAX,
 		  (int (*)(const void *, const void *)) base_header_cmp);
@@ -450,13 +453,12 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	if (base_peer_populate_in_headers(peer, req, &headers) == -1)
 		return -1;
 	
-	// Fill the entry head.
 	struct base_entry *entry_head;
 	if (base_peer_marshall_entry_head(peer, &entry_head,
 					  &headers, content_len) == -1)
 		return -1;
 
-	// Combine entry head and content into a single entry.
+	// Combine entry head and content into a single buffer.
 	char *entry_buf;
 	struct base_entry *entry;
 	if (!(entry_buf = pool_malloc(&peer->pool, entry_head->len))) {
@@ -467,6 +469,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 	memcpy(entry_buf + entry_head->head_len, content_buf, content_len);
 	entry = (struct base_entry *) entry_buf;
 
+	// Checksum and write the entry.
 	if (base_peer_compute_md5_digest(peer, entry) == -1) {
 		base_errno = BASE_EMD5;
 		return -1;
@@ -477,6 +480,7 @@ base_peer_put(struct base_peer *peer, struct evhttp_request *req)
 		return -1;
 	}
 
+	// Update log offset and add entry to index.
 	off_t old_log_off = peer->log_off;
 	peer->log_off += entry->len;
 	

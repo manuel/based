@@ -1,35 +1,108 @@
+-*- outline -*-
+
+* INTRO
+
+based (pronounced "base-dee") is a simple REST database for
+unstructured and semistructured documents in a hierarchical namespace,
+that is intended to be scalable to a RAIDC (redundant array of
+inexpensive data centers) one day.
+
+Currently implemented features are: an efficient directory index based
+on red-black trees; a CRUD interface using GET, PUT, and DELETE;
+append-only writes to a log; MD5 checksums for log entries; deep
+directory listings.
+
+Planned for the near future is a robust log format that loses only a
+small number of log entries in the case of arbitrary corruption.
+
+* INSTALLATION
+
 Requires a recent libevent (1.4) and libgcrypt.
 Tested on Debian stable/x86.
-
-The quick rundown:
 
 make
 ./based
 
-In another shell:
+* API
 
-curl -d "hello world" localhost:8080/hello-world
-w3m http://localhost:8080/hello-world
+** PUT /path/to/doc -- Create/update document
 
-You can PUT/POST files to arbitrary paths on the server,
-e.g. /docs/john_doe/hello-world, and GET them back later, or DELETE
-them.  GETting directories is also supported and returns a directory
-listing (GET /foo/ <-- note trailing slash).  If your HTTP client
-doesn't support the DELETE method you can fake it with a
+Updates or creates a document with the data in the HTTP request body.
+Since many HTTP clients do not support PUT directly, currently the
+POST method has the same effect as PUT.
+
+** GET /path/to/doc -- Get document
+
+Returns a document previously stored, or a 404 error.
+
+** GET /path/ -- Get directory listing
+
+Lists all documents and subdirectories under /path/.  The output
+consists of one directory or document per line, with directories
+identified by a trailing slash.
+
+*** Directory listing example
+
+PUT /docs/foo/bar ...
+PUT /docs/quux ...
+PUT /docs/bla ...
+
+GET /docs/
+foo/
+quux
+bla
+
+** GET /path/?level=N -- Get deep directory listing
+
+Lists all documents and subdirectories under /path/ recursively to a
+depth specified by the level argument.  If the level is 0, this is
+exactly like a normal directory listing.
+
+*** Deep directory listing example
+
+PUT /docs/foo/bar ...
+PUT /docs/quux ...
+PUT /docs/bla ...
+
+GET /?level=0
+docs/
+
+GET /?level=1
+docs/
+        foo/
+        quux
+        bla
+
+GET /?level=2
+docs/
+        foo/
+                bar
+        quux
+        bla
+
+** DELETE /path/to/doc -- Delete document
+
+Deletes the document.  If your HTTP client doesn't support the DELETE
+method, you can send a POST request to the URL with a
 "X-HTTP-Method-Override: DELETE" header.
 
+* INTERNALS
+
 The internal data structures consist of an append-only log, and a RAM
-index which maps document IDs to offset/length pairs (struct
-base_extent) in the log file.
+index which maps document paths to offset/length pairs (struct
+base_extent) in the log file.  The index is a tree of trees and
+compresses common prefixes nicely.
 
 An entry in the log (struct base_entry) consists of a head and a
-content.  The head is made up of headers (struct base_header),
-currently there is only one header that stores the ID.  Soon there
-will be stuff like MIME type, checksum etc.
+content.  The head is made up of a checksum and headers (struct
+base_header), currently there is only one header that stores the ID.
+Soon there will be stuff like MIME type, user-defined headers, etc.
 
 Network and file IO is completely synchronous, so page faults will
 block the event loop.  With large RAMs and small documents maybe
-that's not an issue.
+that's not an issue.  On the positive side, the current architecture
+should be very fast on solid state devices.
+
 
 Manuel Simoni (msimoni gmail com)
-2008-05-05
+2008-05-25

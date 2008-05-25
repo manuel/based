@@ -7,7 +7,6 @@ test suite
 
 Move httpd into own, untrusted process.
 
-head and content checksums
 content-md5 end-to-end integrity check
 
 robust file format, tolerant log redo

@@ -15,7 +15,7 @@ directory listings.
 Planned for the near future is a robust log format that loses only a
 small number of log entries in the case of arbitrary corruption.
 
-* INSTALLATION
+* RUNNING
 
 Requires a recent libevent (1.4) and libgcrypt.
 Tested on Debian stable/x86.

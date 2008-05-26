@@ -55,7 +55,8 @@ bla
 ** GET /path/?level=N -- Get deep directory listing
 
 Lists all documents and subdirectories under /path/ recursively to a
-depth specified by the level argument.  If the level is 0, this is
+depth specified by the level argument.  Nesting is indicated through
+leading tab characters in each line.  If the level is 0, this is
 exactly like a normal directory listing.
 
 *** Deep directory listing example
